@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Sparkles,
   X,
@@ -44,6 +45,7 @@ interface Message {
 }
 
 export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -145,66 +147,45 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
         };
         setMessages((prev) => [...prev, aiResponse]);
       } else {
-        // Regular conversational response (non-modification queries)
-        await new Promise((r) => setTimeout(r, 800));
+        // Regular conversational response (non-modification queries) via OpenRouter chat completions
+        try {
+          const chatHistory = [...messages, userMessage].map((m) => ({
+            role: m.role,
+            content: m.content,
+          }));
 
-        const query = textToSend.toLowerCase();
-        let responseContent = "";
-        let suggestions: string[] = [];
+          const res = await fetch("/api/ai/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: chatHistory,
+              selectedPageId: selectedPageId || null,
+            }),
+          });
 
-        if (
-          query.includes("pages") ||
-          query.includes("workspace") ||
-          query.includes("pagine")
-        ) {
-          const pageList = pages
-            .map((p) => `- ${p.emoji || "📄"} **${p.title}**`)
-            .slice(0, 5)
-            .join("\n");
-          responseContent = `Quack! Here are some pages from your workspace:\n\n${pageList || "No pages shared yet."}`;
-          suggestions = ["Find Gestione lavoro", "Summarize weekly schedule"];
-        } else if (
-          query.includes("gestione") ||
-          query.includes("lavoro") ||
-          query.includes("schedule")
-        ) {
-          const page = pages.find((p) =>
-            p.title.toLowerCase().includes("gestione")
-          );
-          if (page) {
-            responseContent = `I found **${page.emoji || "📄"} ${page.title}** (last edited ${page.last_edited}). It contains your weekly schedule simple table.`;
-          } else {
-            responseContent =
-              "I found a schedule reference, but the page doesn't seem to be shared.";
+          if (!res.ok) {
+            throw new Error(`API error: ${res.status}`);
           }
-          suggestions = ["Show pages"];
-        } else if (
-          query.includes("materie") ||
-          query.includes("database")
-        ) {
-          responseContent =
-            "I scanned your **Materie** database! It has subjects and professors (Boaglio, Marchisio, Cambieri, etc.).";
-          suggestions = ["Show pages"];
-        } else {
-          responseContent = `Quack! I indexed your query: "${textToSend}". I see pages like ${pages
-            .slice(0, 2)
-            .map((p) => `*${p.title}*`)
-            .join(" and ")} active.`;
-          suggestions = [
-            "What pages are in my workspace?",
-            "Summarize weekly schedule",
-          ];
+
+          const data = await res.json();
+
+          const aiResponse: Message = {
+            id: `ai-${Date.now()}`,
+            role: "assistant",
+            content: data.answer || "🦆 Quack! I couldn't get a response. Try again.",
+            timestamp: new Date(),
+          };
+
+          setMessages((prev) => [...prev, aiResponse]);
+        } catch (error: any) {
+          const errorMsg: Message = {
+            id: `ai-${Date.now()}`,
+            role: "assistant",
+            content: `⚠️ Sorry, I had trouble answering that: ${error.message}`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, errorMsg]);
         }
-
-        const aiResponse: Message = {
-          id: `ai-${Date.now()}`,
-          role: "assistant",
-          content: responseContent,
-          timestamp: new Date(),
-          suggestions: suggestions.length > 0 ? suggestions : undefined,
-        };
-
-        setMessages((prev) => [...prev, aiResponse]);
       }
 
       setIsTyping(false);
@@ -237,11 +218,14 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
           id: `ai-${Date.now()}`,
           role: "assistant",
           content: data.success
-            ? `✅ Successfully applied ${data.applied} change${data.applied !== 1 ? "s" : ""} to Notion! Refresh the page to see the updates.`
+            ? `✅ Successfully applied ${data.applied} change${data.applied !== 1 ? "s" : ""} to Notion!`
             : `⚠️ Applied ${data.applied} changes, but ${data.failed} failed. ${data.errors?.join(", ") || ""}`,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, confirmMsg]);
+
+        // Refresh the page layout immediately so the changes are visible on the main page blocks content!
+        router.refresh();
       } catch (error: any) {
         const errorMsg: Message = {
           id: `ai-${Date.now()}`,
