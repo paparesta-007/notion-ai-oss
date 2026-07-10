@@ -60,19 +60,6 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
     }
   }, [messages, isTyping, isOpen]);
 
-  // Detect if the user query is a page modification request
-  const isModificationQuery = useCallback((query: string): boolean => {
-    const modKeywords = [
-      "change", "modify", "update", "edit", "rewrite", "replace",
-      "rename", "fix", "correct", "cambia", "modifica", "aggiorna",
-      "riscrivi", "correggi", "sostituisci", "add", "remove", "delete",
-      "set", "make", "turn", "convert", "write", "put", "inserisci",
-      "aggiungi", "rimuovi", "elimina", "scrivi",
-    ];
-    const lowerQuery = query.toLowerCase();
-    return modKeywords.some((kw) => lowerQuery.includes(kw));
-  }, []);
-
   const handleSendMessage = useCallback(
     async (textToSend: string) => {
       if (!textToSend.trim()) return;
@@ -88,92 +75,43 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
       setInput("");
       setIsTyping(true);
 
-      // Check if it's a modification request AND a page is selected
-      if (isModificationQuery(textToSend) && selectedPageId) {
-        try {
-          const res = await fetch("/api/ai/modify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageId: selectedPageId, query: textToSend }),
-          });
+      try {
+        const chatHistory = [...messages, userMessage].map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
 
-          if (!res.ok) {
-            throw new Error(`API error: ${res.status}`);
-          }
+        const res = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: chatHistory,
+            selectedPageId: selectedPageId || null,
+          }),
+        });
 
-          const data = await res.json();
+        if (!res.ok) {
+          throw new Error(`API error: ${res.status}`);
+        }
 
-          if (data.instructions && data.instructions.length > 0) {
-            const aiResponse: Message = {
-              id: `ai-${Date.now()}`,
-              role: "assistant",
-              content: data.rationale || "Here are the proposed changes:",
-              timestamp: new Date(),
-              edits: data.instructions,
-            };
+        const data = await res.json();
 
-            setMessages((prev) => [...prev, aiResponse]);
-
-            // Dispatch pending edits event so PageBlocksContainer can show the diff preview on the main page content!
-            window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
-              detail: { edits: data.instructions, pageId: selectedPageId }
-            }));
-          } else {
-            const aiResponse: Message = {
-              id: `ai-${Date.now()}`,
-              role: "assistant",
-              content:
-                data.rationale ||
-                "I analyzed the page but found no blocks that need modification for your request.",
-              timestamp: new Date(),
-              suggestions: ["Show pages", "What pages are in my workspace?"],
-            };
-            setMessages((prev) => [...prev, aiResponse]);
-          }
-        } catch (error: any) {
-          const errorMsg: Message = {
+        if (data.isModification && data.instructions && data.instructions.length > 0) {
+          const aiResponse: Message = {
             id: `ai-${Date.now()}`,
             role: "assistant",
-            content: `⚠️ Couldn't process the modification: ${error.message}. Make sure you have an OpenRouter API key set in your .env.local file (\`OPENROUTER_API_KEY\`).`,
+            content: data.rationale || "Here are the proposed changes:",
             timestamp: new Date(),
-            suggestions: ["What pages are in my workspace?"],
+            edits: data.instructions,
           };
-          setMessages((prev) => [...prev, errorMsg]);
-        }
-      } else if (isModificationQuery(textToSend) && !selectedPageId) {
-        // Modification intent but no page selected
-        const aiResponse: Message = {
-          id: `ai-${Date.now()}`,
-          role: "assistant",
-          content:
-            "🦆 Quack! I see you want to modify content, but no page is currently selected. Please select a page from the sidebar first, then ask me to make changes.",
-          timestamp: new Date(),
-          suggestions: ["What pages are in my workspace?"],
-        };
-        setMessages((prev) => [...prev, aiResponse]);
-      } else {
-        // Regular conversational response (non-modification queries) via OpenRouter chat completions
-        try {
-          const chatHistory = [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
+
+          setMessages((prev) => [...prev, aiResponse]);
+
+          // Dispatch pending edits event so PageBlocksContainer can show the diff preview on the main page content!
+          window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
+            detail: { edits: data.instructions, pageId: selectedPageId }
           }));
-
-          const res = await fetch("/api/ai/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: chatHistory,
-              selectedPageId: selectedPageId || null,
-            }),
-          });
-
-          if (!res.ok) {
-            throw new Error(`API error: ${res.status}`);
-          }
-
-          const data = await res.json();
-
+        } else {
           const aiResponse: Message = {
             id: `ai-${Date.now()}`,
             role: "assistant",
@@ -182,20 +120,20 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
           };
 
           setMessages((prev) => [...prev, aiResponse]);
-        } catch (error: any) {
-          const errorMsg: Message = {
-            id: `ai-${Date.now()}`,
-            role: "assistant",
-            content: `⚠️ Sorry, I had trouble answering that: ${error.message}`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, errorMsg]);
         }
+      } catch (error: any) {
+        const errorMsg: Message = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: `⚠️ Sorry, I had trouble answering that: ${error.message}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
       }
 
       setIsTyping(false);
     },
-    [pages, selectedPageId, isModificationQuery]
+    [messages, selectedPageId]
   );
 
   const handleApplyEdits = useCallback(
