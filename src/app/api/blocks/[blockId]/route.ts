@@ -170,6 +170,30 @@ export async function GET(
           }
         }
 
+        // Support images
+        if (type === "image" && block.image) {
+          const imgType = block.image.type;
+          const src = imgType === "external" ? block.image.external.url : block.image.file?.url;
+          const caption = block.image.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: src || "",
+            caption,
+          };
+        }
+
+        // Support videos
+        if (type === "video" && block.video) {
+          const vidType = block.video.type;
+          const src = vidType === "external" ? block.video.external.url : block.video.file?.url;
+          const caption = block.video.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: src || "",
+            caption,
+          };
+        }
+
         // Support buttons
         if (type === "unsupported" && block.unsupported?.block_type === "button") {
           return {

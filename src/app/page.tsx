@@ -45,6 +45,7 @@ interface Block {
   database_columns?: string[];
   button_text?: string;
   button_icon?: string;
+  caption?: string;
 }
 
 const MOCK_PAGES = [
@@ -366,6 +367,57 @@ function BlockRenderer({ block, isMock }: { block: Block; isMock: boolean }) {
       return (
         <div className="my-6 flex justify-center text-neutral-800">
           <Latex math={content} block={true} />
+        </div>
+      );
+    case "image":
+      return (
+        <div className="my-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={content}
+            alt={block.caption || "Notion Image"}
+            className="rounded-xl border border-[#edece9] max-h-[450px] object-cover w-full shadow-sm hover:shadow-md transition-shadow select-none"
+          />
+          {block.caption && (
+            <p className="text-xs text-[#7c7b77] mt-1.5 px-1 leading-normal select-none">
+              {block.caption}
+            </p>
+          )}
+        </div>
+      );
+    case "video":
+      const isYouTube = content.includes("youtube.com") || content.includes("youtu.be");
+      let embedUrl = "";
+      if (isYouTube) {
+        const match = content.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+        if (match && match[1]) {
+          embedUrl = `https://www.youtube.com/embed/${match[1]}`;
+        }
+      }
+
+      return (
+        <div className="my-4">
+          {embedUrl ? (
+            <div className="relative aspect-video rounded-xl border border-[#edece9] overflow-hidden shadow-sm">
+              <iframe
+                src={embedUrl}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full border-none"
+              />
+            </div>
+          ) : (
+            <video
+              src={content}
+              controls
+              className="rounded-xl border border-[#edece9] max-h-[450px] w-full shadow-sm select-none"
+            />
+          )}
+          {block.caption && (
+            <p className="text-xs text-[#7c7b77] mt-1.5 px-1 leading-normal select-none">
+              {block.caption}
+            </p>
+          )}
         </div>
       );
     default:
@@ -704,6 +756,30 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               } catch (err) {
                 console.error("Error querying child database:", err);
               }
+            }
+
+            // Image block handling
+            if (type === "image" && block.image) {
+              const imgType = block.image.type;
+              const src = imgType === "external" ? block.image.external.url : block.image.file?.url;
+              const caption = block.image.caption?.map((t: any) => t.plain_text).join("") || "";
+              return {
+                type,
+                content: src || "",
+                caption,
+              };
+            }
+
+            // Video block handling
+            if (type === "video" && block.video) {
+              const vidType = block.video.type;
+              const src = vidType === "external" ? block.video.external.url : block.video.file?.url;
+              const caption = block.video.caption?.map((t: any) => t.plain_text).join("") || "";
+              return {
+                type,
+                content: src || "",
+                caption,
+              };
             }
 
             // Equation block handling

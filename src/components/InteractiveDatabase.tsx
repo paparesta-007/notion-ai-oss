@@ -185,6 +185,57 @@ function ClientBlockRenderer({ block }: { block: any }) {
           </table>
         </div>
       );
+    case "image":
+      return (
+        <div className="my-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={content}
+            alt={block.caption || "Page Image"}
+            className="rounded-xl border border-[#edece9] max-h-[350px] object-cover w-full shadow-sm hover:shadow-md transition-shadow select-none"
+          />
+          {block.caption && (
+            <p className="text-[10px] text-[#7c7b77] mt-1 px-1 leading-normal select-none">
+              {block.caption}
+            </p>
+          )}
+        </div>
+      );
+    case "video":
+      const isYouTube = content.includes("youtube.com") || content.includes("youtu.be");
+      let embedUrl = "";
+      if (isYouTube) {
+        const match = content.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+        if (match && match[1]) {
+          embedUrl = `https://www.youtube.com/embed/${match[1]}`;
+        }
+      }
+
+      return (
+        <div className="my-3">
+          {embedUrl ? (
+            <div className="relative aspect-video rounded-xl border border-[#edece9] overflow-hidden shadow-sm">
+              <iframe
+                src={embedUrl}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="absolute inset-0 w-full h-full border-none"
+              />
+            </div>
+          ) : (
+            <video
+              src={content}
+              controls
+              className="rounded-xl border border-[#edece9] max-h-[350px] w-full shadow-sm select-none"
+            />
+          )}
+          {block.caption && (
+            <p className="text-[10px] text-[#7c7b77] mt-1 px-1 leading-normal select-none">
+              {block.caption}
+            </p>
+          )}
+        </div>
+      );
     case "child_database":
       return (
         <InteractiveDatabase 
