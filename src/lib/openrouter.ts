@@ -1,6 +1,27 @@
 // OpenRouter API Integration Library
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+function getApiKey(): string {
+  let apiKey = process.env.OPENROUTER_API_KEY || "";
+  
+  // Strip quotes if they exist
+  if (apiKey.startsWith('"') && apiKey.endsWith('"')) {
+    apiKey = apiKey.slice(1, -1);
+  }
+  if (apiKey.startsWith("'") && apiKey.endsWith("'")) {
+    apiKey = apiKey.slice(1, -1);
+  }
+  
+  apiKey = apiKey.trim();
+
+  if (!apiKey) {
+    console.error("⚠️ [DEBUG] OPENROUTER_API_KEY is empty or undefined in process.env!");
+  } else {
+    console.log(`🔑 [DEBUG] OpenRouter Key Loaded: ${apiKey.slice(0, 10)}...${apiKey.slice(-6)} (length: ${apiKey.length})`);
+  }
+  return apiKey;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -21,7 +42,7 @@ export async function chatCompletion(
   options: ChatOptions = {}
 ): Promise<string> {
   const model = options.model || "inclusionai/ling-2.6-flash";
-  const apiKey = process.env.OPENROUTER_API_KEY || "";
+  const apiKey = getApiKey();
 
   try {
     const response = await fetch(OPENROUTER_API_URL, {
@@ -62,7 +83,7 @@ export async function streamingOutput(
   options: ChatOptions = {}
 ): Promise<void> {
   const model = options.model || "inclusionai/ling-2.6-flash";
-  const apiKey = process.env.OPENROUTER_API_KEY || "";
+  const apiKey = getApiKey();
 
   try {
     const response = await fetch(OPENROUTER_API_URL, {
@@ -131,7 +152,7 @@ export async function structuredOutput<T>(
   options: ChatOptions = {}
 ): Promise<T> {
   const model = options.model || "openai/gpt-4o-mini";
-  const apiKey = process.env.OPENROUTER_API_KEY || "";
+  const apiKey = getApiKey();
 
   try {
     const response = await fetch(OPENROUTER_API_URL, {
