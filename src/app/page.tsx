@@ -6,10 +6,12 @@ import { NotionLogo } from "@/components/notion-logo";
 import { SearchCommand } from "@/components/SearchCommand";
 import { InteractiveButton } from "@/components/InteractiveButton";
 import { InteractiveDatabase } from "@/components/InteractiveDatabase";
-import { Latex } from "@/components/Latex";
-import { CodeBlock } from "@/components/CodeBlock";
 import { cn } from "@/lib/utils";
 import { getCached, setCached } from "@/lib/cache";
+import { AIChatbot } from "@/components/AIChatbot";
+import { Block, Page } from "@/lib/types";
+import { BlockRenderer, PageIcon, RichTextRenderer } from "@/components/BlockRenderer";
+import { MOCK_PAGES, MOCK_PAGE_CONTENTS } from "@/lib/mockData";
 
 // Import shadcn components
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,403 +29,11 @@ import {
   Files, 
   AlertTriangle,
   FileCode,
-  Info
+  Info,
+  Sparkles
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
-
-interface Block {
-  type: string;
-  content: string;
-  checked?: boolean;
-  language?: string;
-  table_width?: number;
-  has_column_header?: boolean;
-  rows?: string[][];
-  database_title?: string;
-  database_rows?: Record<string, string>[];
-  database_columns?: string[];
-  button_text?: string;
-  button_icon?: string;
-  caption?: string;
-}
-
-const MOCK_PAGES = [
-  {
-    id: "mock-1",
-    title: "Project Brainstorming & Mindmap",
-    url: "https://notion.so",
-    created: "2 days ago",
-    last_edited: "2 hours ago",
-    emoji: "💡",
-  },
-  {
-    id: "mock-2",
-    title: "Product Launch Roadmap v2.0",
-    url: "https://notion.so",
-    created: "1 week ago",
-    last_edited: "Yesterday",
-    emoji: "🚀",
-  },
-  {
-    id: "mock-3",
-    title: "Notion AI Integration Specifications",
-    url: "https://notion.so",
-    created: "2 weeks ago",
-    last_edited: "3 days ago",
-    emoji: null, // Test fallback Lucide icon
-  },
-  {
-    id: "mock-4",
-    title: "Team Weekly Standup Sync Notes",
-    url: "https://notion.so",
-    created: "3 days ago",
-    last_edited: "5 mins ago",
-    emoji: "🎯",
-  },
-  {
-    id: "mock-5",
-    title: "Marketing Copy & Creative Direction",
-    url: "https://notion.so",
-    created: "1 month ago",
-    last_edited: "1 week ago",
-    emoji: "✍️",
-  },
-];
-
-const MOCK_PAGE_CONTENTS: Record<string, { title: string; emoji: string | null; blocks: Block[] }> = {
-  "mock-1": {
-    title: "Project Brainstorming & Mindmap",
-    emoji: "💡",
-    blocks: [
-      { type: "heading_1", content: "💡 Project Brainstorming & Mindmap" },
-      { type: "paragraph", content: "This workspace is dedicated to sketching out early ideas for our new Notion AI agent integration. We aim to build a secure, fast, and feature-rich system." },
-      { type: "heading_2", content: "🎯 Key Goals" },
-      { type: "bulleted_list_item", content: "Establish a secure OAuth 2.0 gateway to Notion's API." },
-      { type: "bulleted_list_item", content: "Create an encrypted local session cookie that expires in 3 days." },
-      { type: "bulleted_list_item", content: "Render Notion's block structure natively in clean, responsive web formats." },
-      {
-        type: "table",
-        content: "",
-        has_column_header: true,
-        rows: [
-          ["Infrastructure Component", "Owner", "Status"],
-          ["OAuth 2.0 Flow Gateway", "Tommaso", "Ready"],
-          ["GCM Cryptography Provider", "Tommaso", "Ready"],
-          ["Recursive Block Parser", "Sarah", "In Progress"],
-        ]
-      },
-      { type: "heading_2", content: "📋 Action Items" },
-      { type: "to_do", content: "Register OAuth integration in Notion developer portal", checked: true },
-      { type: "to_do", content: "Verify GCM block cryptography on cookie store", checked: true },
-      { type: "to_do", content: "Enable real-time collaborative workspace synchronization", checked: false },
-      {
-        type: "button",
-        content: "",
-        button_text: "Trigger Sync Event",
-        button_icon: "⚡"
-      },
-      { type: "heading_2", content: "🔒 Security Instructions" },
-      { type: "callout", content: "All user sessions are protected using hardware-accelerated AES-256-GCM encryption. Do not commit SESSION_SECRET keys to repository history." },
-      { type: "heading_2", content: "📂 Workspace Roadmaps & Tasks Database" },
-      {
-        type: "child_database",
-        content: "Project Roadmap Tasks",
-        database_title: "Project Roadmap Tasks",
-        database_columns: ["Name", "Status", "Created Date", "Priority"],
-        database_rows: [
-          { Name: "Review OAuth 2.0 Security Gateway", Status: "Done", "Created Date": "10/9/2024", Priority: "High" },
-          { Name: "Deploy Server-Side Cache Layer", Status: "In Progress", "Created Date": "2/6/2026", Priority: "Medium" },
-          { Name: "Write Client Integration Tests", Status: "Todo", "Created Date": "2/10/2026", Priority: "Low" },
-        ]
-      }
-    ]
-  },
-  "mock-2": {
-    title: "Product Launch Roadmap v2.0",
-    emoji: "🚀",
-    blocks: [
-      { type: "heading_1", content: "🚀 Product Launch Roadmap v2.0" },
-      { type: "paragraph", content: "Our team roadmap details the schedule leading to our official Q3 2026 release of Notion AI Workspace." },
-      { type: "heading_2", content: "📅 Timeline Phases" },
-      { type: "bulleted_list_item", content: "Phase 1 (Alpha): Core infrastructure build and basic page rendering" },
-      { type: "bulleted_list_item", content: "Phase 2 (Beta): Support database views, filter criteria, and rich-text editing" },
-      { type: "bulleted_list_item", content: "Phase 3 (Release): Public workspace distribution, team permissions, and billing" },
-      { type: "heading_2", content: "💭 Release Quote" },
-      { type: "quote", content: "A successful launch is the result of continuous design alignment and code discipline." }
-    ]
-  },
-  "mock-3": {
-    title: "Notion AI Integration Specifications",
-    emoji: null,
-    blocks: [
-      { type: "heading_1", content: "📄 Notion AI Integration Specifications" },
-      { type: "paragraph", content: "This technical spec details the structure and methods for querying the Notion block tree and mapping it to web components." },
-      { type: "heading_2", content: "💻 Sample Typescript Definition" },
-      { type: "code", content: `interface NotionSyncConfig {
-  intervalMs: number;
-  syncTypes: ('pages' | 'databases')[];
-  maxDepth: number;
-  encryptionKey: string;
-}
-
-export function syncWorkspace(config: NotionSyncConfig) {
-  console.log("Synchronizing workspace...", config.intervalMs);
-}`, language: "typescript" },
-      { type: "paragraph", content: "We retrieve page children recursively from the Notion API to build a shadow document tree." }
-    ]
-  },
-  "mock-4": {
-    title: "Team Weekly Standup Sync Notes",
-    emoji: "🎯",
-    blocks: [
-      { type: "heading_1", content: "🎯 Team Weekly Standup Sync Notes" },
-      { type: "paragraph", content: "Meeting notes from July 10, 2026. Focus is on finalizing the UI design using shadcn components." },
-      { type: "heading_2", content: "🗣️ Updates by Member" },
-      { type: "bulleted_list_item", content: "Tommaso: Created the OAuth 2.0 flow and implemented the 3-day session cookies." },
-      { type: "bulleted_list_item", content: "Sarah: Designed the sidebar navigation and updated style definitions to remove default serif font." },
-      { type: "bulleted_list_item", content: "Next target: Complete dynamic sub-page rendering (read-only) inside the main panel." }
-    ]
-  },
-  "mock-5": {
-    title: "Marketing Copy & Creative Direction",
-    emoji: "✍️",
-    blocks: [
-      { type: "heading_1", content: "✍️ Marketing Copy & Creative Direction" },
-      { type: "paragraph", content: "A collection of drafts and directions for our landing pages and ad copies." },
-      { type: "heading_2", content: "📣 Core Value Proposition" },
-      { type: "quote", content: "Unlock the full potential of your Notion workspace. Retrieve, interact, and collaborate with your shared pages in a custom, secure AI-powered dashboard." }
-    ]
-  }
-};
-
-/**
- * Render Page Icon: use custom emoji if present, else fall back to Lucide FileText icon.
- */
-function PageIcon({ emoji, className = "w-4 h-4" }: { emoji?: string | null; className?: string }) {
-  if (emoji && emoji.length > 0 && !["📄", "🔗", "📎"].includes(emoji)) {
-    return <span className="text-base flex-shrink-0 leading-none">{emoji}</span>;
-  }
-  return <FileText className={`${className} text-[#7a7a78] flex-shrink-0`} />;
-}
-
-function RichTextRenderer({ textArr }: { textArr?: any }) {
-  if (!textArr) return null;
-  
-  if (typeof textArr === "string") {
-    return <span className="whitespace-pre-wrap">{textArr}</span>;
-  }
-  
-  if (!Array.isArray(textArr)) return null;
-
-  return (
-    <span className="whitespace-pre-wrap">
-      {textArr.map((t, idx) => {
-        const { annotations, text, href, type } = t;
-
-        // Support inline math equations
-        if (type === "equation" && t.equation?.expression) {
-          return <Latex key={idx} math={t.equation.expression} block={false} />;
-        }
-
-        let element = <span key={idx}>{text?.content || t.plain_text || ""}</span>;
-
-        if (annotations?.bold) element = <strong key={idx} className="font-bold text-[#1a1a1a]">{text?.content || t.plain_text}</strong>;
-        if (annotations?.italic) element = <em key={idx} className="italic">{text?.content || t.plain_text}</em>;
-        if (annotations?.underline) element = <u key={idx} className="underline">{text?.content || t.plain_text}</u>;
-        if (annotations?.strikethrough) element = <span key={idx} className="line-through">{text?.content || t.plain_text}</span>;
-        if (annotations?.code) element = <code key={idx} className="bg-[#edece9]/50 px-1 py-0.5 rounded font-mono text-xs">{text?.content || t.plain_text}</code>;
-
-        if (href) {
-          element = (
-            <a key={idx} href={href} target="_blank" rel="noopener noreferrer" className="text-[#2383e2] hover:underline">
-              {element}
-            </a>
-          );
-        }
-
-        return element;
-      })}
-    </span>
-  );
-}
-
-function BlockRenderer({ block, isMock }: { block: Block; isMock: boolean }) {
-  const { type, content, checked, language } = block;
-
-  switch (type) {
-    case "heading_1":
-      return (
-        <h1 className="text-[30px] font-bold text-[#1a1a1a] mt-7 mb-4 tracking-tight border-b border-[#edece9] pb-2 leading-tight">
-          {content}
-        </h1>
-      );
-    case "heading_2":
-      return (
-        <h2 className="text-[22px] font-semibold text-[#1a1a1a] mt-6 mb-3 tracking-tight leading-snug">
-          {content}
-        </h2>
-      );
-    case "heading_3":
-      return (
-        <h3 className="text-[18px] font-semibold text-[#1a1a1a] mt-5 mb-2 tracking-tight leading-snug">
-          {content}
-        </h3>
-      );
-    case "paragraph":
-      return (
-        <p className="text-base text-[#37352f] leading-relaxed mb-4 font-normal">
-          {content}
-        </p>
-      );
-    case "bulleted_list_item":
-      return (
-        <div className="flex items-start gap-2.5 text-base text-[#37352f] mb-2 pl-1.5">
-          <span className="text-[#a4a3a1] select-none text-[16px] leading-none mt-1">•</span>
-          <span className="leading-relaxed">{content}</span>
-        </div>
-      );
-    case "to_do":
-      return (
-        <div className="flex items-start gap-2.5 text-base text-[#37352f] mb-2 pl-0.5">
-          <input
-            type="checkbox"
-            checked={checked}
-            readOnly
-            className="mt-1 h-4 w-4 rounded border-[#e3e2e0] text-[#2383e2] focus:ring-[#2383e2] cursor-not-allowed"
-          />
-          <span className={`leading-relaxed ${checked ? "line-through text-[#7c7b77]" : ""}`}>
-            {content}
-          </span>
-        </div>
-      );
-    case "code":
-      return (
-        <div className="mb-4 mt-2">
-          <div className="flex justify-between items-center bg-[#edece9]/30 px-3 py-1.5 border-t border-l border-r border-[#edece9] rounded-t-md text-xs text-[#7a7a78] font-mono select-none">
-            <span className="flex items-center gap-1"><FileCode className="w-4 h-4 text-[#7a7a78]" /> {language || "code"}</span>
-            <span>Read-Only</span>
-          </div>
-          <pre className="p-4 bg-[#f7f7f5] border border-[#edece9] rounded-b-md overflow-x-auto font-mono text-sm text-[#37352f] leading-relaxed select-text">
-            <code>{content}</code>
-          </pre>
-        </div>
-      );
-    case "quote":
-      return (
-        <blockquote className="pl-4 border-l-[3px] border-[#37352f] text-base italic text-[#6a6965] my-4 leading-relaxed">
-          {content}
-        </blockquote>
-      );
-    case "callout":
-      return (
-        <div className="flex gap-3 p-4 bg-[#f7f7f5] border border-[#edece9] rounded-xl text-base text-[#37352f] my-4 leading-relaxed items-start">
-          <Info className="w-5 h-5 text-[#7a7a78] mt-0.5 flex-shrink-0" />
-          <div>{content}</div>
-        </div>
-      );
-    case "table":
-      const tableRows = block.rows || [];
-      const hasColHeader = block.has_column_header;
-      return (
-        <div className="my-4 overflow-x-auto border border-[#edece9] rounded-lg select-text">
-          <table className="min-w-full divide-y divide-[#edece9] border-collapse">
-            <tbody className="divide-y divide-[#edece9]">
-              {tableRows.map((row, rowIdx) => {
-                const isHeader = rowIdx === 0 && hasColHeader;
-                return (
-                  <tr key={rowIdx} className={cn(isHeader ? "bg-[#f7f7f5]/60 font-semibold" : "hover:bg-[#f7f7f5]/20")}>
-                    {row.map((cell, cellIdx) => {
-                      const CellTag = isHeader ? "th" : "td";
-                      return (
-                        <CellTag key={cellIdx} className="px-4 py-2.5 text-sm text-left border border-[#edece9] text-[#37352f] min-w-[120px]">
-                          <RichTextRenderer textArr={cell} />
-                        </CellTag>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      );
-    case "child_database":
-      return (
-        <InteractiveDatabase 
-          databaseTitle={block.database_title || content} 
-          initialRows={isMock ? (block.database_rows || undefined) : (block.database_rows || [])} 
-          columns={isMock ? (block.database_columns || undefined) : (block.database_columns || [])} 
-        />
-      );
-    case "button":
-      return (
-        <InteractiveButton 
-          buttonText={block.button_text || content} 
-          buttonIcon={block.button_icon} 
-        />
-      );
-    case "equation":
-      return (
-        <div className="my-6 flex justify-center text-neutral-800">
-          <Latex math={content} block={true} />
-        </div>
-      );
-    case "image":
-      return (
-        <div className="my-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={content}
-            alt={block.caption || "Notion Image"}
-            className="rounded-xl border border-[#edece9] max-h-[450px] object-cover w-full shadow-sm hover:shadow-md transition-shadow select-none"
-          />
-          {block.caption && (
-            <p className="text-xs text-[#7c7b77] mt-1.5 px-1 leading-normal select-none">
-              {block.caption}
-            </p>
-          )}
-        </div>
-      );
-    case "video":
-      const isYouTube = content.includes("youtube.com") || content.includes("youtu.be");
-      let embedUrl = "";
-      if (isYouTube) {
-        const match = content.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-        if (match && match[1]) {
-          embedUrl = `https://www.youtube.com/embed/${match[1]}`;
-        }
-      }
-
-      return (
-        <div className="my-4">
-          {embedUrl ? (
-            <div className="relative aspect-video rounded-xl border border-[#edece9] overflow-hidden shadow-sm">
-              <iframe
-                src={embedUrl}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full border-none"
-              />
-            </div>
-          ) : (
-            <video
-              src={content}
-              controls
-              className="rounded-xl border border-[#edece9] max-h-[450px] w-full shadow-sm select-none"
-            />
-          )}
-          {block.caption && (
-            <p className="text-xs text-[#7c7b77] mt-1.5 px-1 leading-normal select-none">
-              {block.caption}
-            </p>
-          )}
-        </div>
-      );
-    default:
-      return null;
-  }
-}
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -441,6 +51,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const pageIdParam = typeof params.pageId === "string" ? params.pageId : undefined;
   const selectedPageId = pageIdParam;
   const isViewingSpecificPage = !!selectedPageId;
+  const isViewingAI = params.ai === "true";
 
   let pages: any[] = [];
   let fetchError: string | null = null;
@@ -782,6 +393,28 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               };
             }
 
+            // PDF block handling
+            if (type === "pdf" && block.pdf) {
+              const pdfType = block.pdf.type;
+              const src = pdfType === "external" ? block.pdf.external.url : block.pdf.file?.url;
+              const caption = block.pdf.caption?.map((t: any) => t.plain_text).join("") || "";
+              return {
+                type,
+                content: src || "",
+                caption,
+              };
+            }
+
+            // Embed block handling
+            if (type === "embed" && block.embed) {
+              const caption = block.embed.caption?.map((t: any) => t.plain_text).join("") || "";
+              return {
+                type,
+                content: block.embed.url || "",
+                caption,
+              };
+            }
+
             // Equation block handling
             if (type === "equation" && block.equation?.expression) {
               return {
@@ -860,6 +493,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           {/* Interactive Search bar component (Ctrl+K and Click trigger) */}
           <SearchCommand pages={pages} />
 
+          {/* Notion AI Chatbot Menu Item */}
+          <div className="px-2 py-1.5 border-b border-[#edece9] select-none">
+            <Link 
+              href="/?ai=true"
+              className={cn(
+                "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-semibold transition-colors block",
+                pageIdParam === undefined && params.ai === "true"
+                  ? "bg-[#edece9] text-[#1a1a1a]" 
+                  : "text-[#37352f] hover:bg-[#edece9]/40"
+              )}
+            >
+              <div className="flex items-center gap-2.5 w-full">
+                <Sparkles className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                <span className="flex-1 text-left font-sans">Notion AI Chatbot</span>
+                <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider scale-95 font-sans">New</span>
+              </div>
+            </Link>
+          </div>
+
           {/* Sidebar Navigation Pages */}
           <nav className="px-2 py-1 space-y-0.5 max-h-[calc(100vh-220px)] overflow-y-auto">
             <span className="text-[11px] font-semibold text-[#7a7a78] tracking-wider uppercase px-2 py-1.5 block">
@@ -916,18 +568,27 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-white">
         
         {/* Top Header Bar */}
-        <header className="h-[48px] border-b border-[#edece9] px-6 flex items-center justify-between text-[13px] text-[#7a7a78]">
-          <div className="flex items-center gap-1">
-            <Link href="/" className="hover:text-[#37352f] transition-colors">Workspaces</Link>
-            <span>/</span>
-            <Link href="/" className="text-[#37352f] font-medium truncate max-w-[150px] hover:underline">
-              {session.workspaceName || "Dashboard"}
+        <header className="h-[48px] border-b border-[#edece9] px-6 flex items-center justify-between text-[13px] text-[#7a7a78] select-none">
+          <div className="flex items-center gap-1.5 font-semibold text-[#37352f]">
+            {session.workspaceIcon && <span className="text-sm">{session.workspaceIcon}</span>}
+            <Link href="/" className="hover:underline truncate max-w-[180px]">
+              {session.workspaceName || "Workspace"}
             </Link>
-            {selectedPage && (
+            
+            {isViewingAI && (
               <>
-                <span>/</span>
-                <span className="text-[#37352f] font-medium truncate max-w-[180px] flex items-center gap-1">
-                  <PageIcon emoji={selectedPage.emoji} className="w-4 h-4" />
+                <span className="text-[#a4a3a1] font-normal font-sans">/</span>
+                <span className="text-[#7a7a78] font-semibold truncate max-w-[180px] flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Notion AI Chatbot</span>
+                </span>
+              </>
+            )}
+            {!isViewingAI && selectedPage && (
+              <>
+                <span className="text-[#a4a3a1] font-normal font-sans">/</span>
+                <span className="text-[#7a7a78] font-semibold truncate max-w-[180px] flex items-center gap-1">
+                  <PageIcon emoji={selectedPage.emoji} className="w-3.5 h-3.5" />
                   <span>{selectedPage.title}</span>
                 </span>
               </>
@@ -968,8 +629,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           {/* Centered Content Wrapper */}
           <div className="px-12 py-10 max-w-4xl w-full mx-auto">
             
-            {/* CONDITION 1: VIEWING A SPECIFIC SUB-PAGE (Hides the 3 workspace cards, behaves exactly like Notion) */}
-            {isViewingSpecificPage && selectedPage ? (
+            {/* CONDITION 3: NOTION AI CHATBOT VIEW */}
+            {isViewingAI ? (
+              <AIChatbot pages={pages} />
+            ) : isViewingSpecificPage && selectedPage ? (
               <div className="space-y-6">
                 {/* Page Cover/Header */}
                 <div className="mb-8 border-b border-[#f1f1ef] pb-6 flex items-center justify-between">
