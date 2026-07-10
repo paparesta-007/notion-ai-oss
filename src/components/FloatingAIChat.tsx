@@ -1,22 +1,23 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { 
-  Sparkles, 
-  X, 
-  Send, 
-  Bot, 
-  User, 
-  Trash2, 
-  Plus, 
-  SlidersHorizontal, 
-  Mic, 
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Sparkles,
+  X,
+  Send,
+  Bot,
+  User,
+  Trash2,
+  Plus,
+  SlidersHorizontal,
+  Mic,
   ArrowUp,
   Table,
   Search,
-  Presentation
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DiffViewer, type BlockEdit } from "./DiffViewer";
 
 interface Page {
   id: string;
@@ -29,6 +30,7 @@ interface Page {
 
 interface FloatingAIChatProps {
   pages: Page[];
+  selectedPageId?: string | null;
 }
 
 interface Message {
@@ -37,13 +39,16 @@ interface Message {
   content: string;
   timestamp: Date;
   suggestions?: string[];
+  edits?: BlockEdit[];
+  editsApplied?: boolean;
 }
 
-export function FloatingAIChat({ pages }: FloatingAIChatProps) {
+export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll to bottom
@@ -53,59 +58,220 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
     }
   }, [messages, isTyping, isOpen]);
 
-  const handleSendMessage = (textToSend: string) => {
-    if (!textToSend.trim()) return;
+  // Detect if the user query is a page modification request
+  const isModificationQuery = useCallback((query: string): boolean => {
+    const modKeywords = [
+      "change", "modify", "update", "edit", "rewrite", "replace",
+      "rename", "fix", "correct", "cambia", "modifica", "aggiorna",
+      "riscrivi", "correggi", "sostituisci", "add", "remove", "delete",
+      "set", "make", "turn", "convert", "write", "put", "inserisci",
+      "aggiungi", "rimuovi", "elimina", "scrivi",
+    ];
+    const lowerQuery = query.toLowerCase();
+    return modKeywords.some((kw) => lowerQuery.includes(kw));
+  }, []);
 
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: textToSend,
-      timestamp: new Date()
-    };
+  const handleSendMessage = useCallback(
+    async (textToSend: string) => {
+      if (!textToSend.trim()) return;
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsTyping(true);
-
-    // Simulate AI response logic
-    setTimeout(() => {
-      setIsTyping(false);
-      
-      const query = textToSend.toLowerCase();
-      let responseContent = "";
-      let suggestions: string[] = [];
-
-      if (query.includes("pages") || query.includes("workspace") || query.includes("pagine")) {
-        const pageList = pages.map(p => `- ${p.emoji || "📄"} **${p.title}**`).slice(0, 5).join("\n");
-        responseContent = `Quack! Here are some pages from your workspace:\n\n${pageList || "No pages shared yet."}`;
-        suggestions = ["Find Gestione lavoro", "Summarize weekly schedule"];
-      } else if (query.includes("gestione") || query.includes("lavoro") || query.includes("schedule")) {
-        const page = pages.find(p => p.title.toLowerCase().includes("gestione"));
-        if (page) {
-          responseContent = `I found **${page.emoji || "📄"} ${page.title}** (last edited ${page.last_edited}). It contains your weekly schedule simple table.`;
-        } else {
-          responseContent = "I found a schedule reference, but the page doesn't seem to be shared.";
-        }
-        suggestions = ["Show pages"];
-      } else if (query.includes("materie") || query.includes("database")) {
-        responseContent = "I scanned your **Materie** database! It has subjects and professors (Boaglio, Marchisio, Cambieri, etc.).";
-        suggestions = ["Show pages"];
-      } else {
-        responseContent = `Quack! I indexed your query: "${textToSend}". I see pages like ${pages.slice(0, 2).map(p => `*${p.title}*`).join(" and ")} active.`;
-        suggestions = ["What pages are in my workspace?", "Summarize weekly schedule"];
-      }
-
-      const aiResponse: Message = {
-        id: `ai-${Date.now()}`,
-        role: "assistant",
-        content: responseContent,
+      const userMessage: Message = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: textToSend,
         timestamp: new Date(),
-        suggestions: suggestions.length > 0 ? suggestions : undefined
       };
 
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1200);
-  };
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsTyping(true);
+
+      // Check if it's a modification request AND a page is selected
+      if (isModificationQuery(textToSend) && selectedPageId) {
+        try {
+          const res = await fetch("/api/ai/modify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pageId: selectedPageId, query: textToSend }),
+          });
+
+          if (!res.ok) {
+            throw new Error(`API error: ${res.status}`);
+          }
+
+          const data = await res.json();
+
+          if (data.instructions && data.instructions.length > 0) {
+            const aiResponse: Message = {
+              id: `ai-${Date.now()}`,
+              role: "assistant",
+              content: data.rationale || "Here are the proposed changes:",
+              timestamp: new Date(),
+              edits: data.instructions,
+            };
+
+            setMessages((prev) => [...prev, aiResponse]);
+          } else {
+            const aiResponse: Message = {
+              id: `ai-${Date.now()}`,
+              role: "assistant",
+              content:
+                data.rationale ||
+                "I analyzed the page but found no blocks that need modification for your request.",
+              timestamp: new Date(),
+              suggestions: ["Show pages", "What pages are in my workspace?"],
+            };
+            setMessages((prev) => [...prev, aiResponse]);
+          }
+        } catch (error: any) {
+          const errorMsg: Message = {
+            id: `ai-${Date.now()}`,
+            role: "assistant",
+            content: `⚠️ Couldn't process the modification: ${error.message}. Make sure you have an OpenRouter API key set in your .env.local file (\`OPENROUTER_API_KEY\`).`,
+            timestamp: new Date(),
+            suggestions: ["What pages are in my workspace?"],
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+        }
+      } else if (isModificationQuery(textToSend) && !selectedPageId) {
+        // Modification intent but no page selected
+        const aiResponse: Message = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content:
+            "🦆 Quack! I see you want to modify content, but no page is currently selected. Please select a page from the sidebar first, then ask me to make changes.",
+          timestamp: new Date(),
+          suggestions: ["What pages are in my workspace?"],
+        };
+        setMessages((prev) => [...prev, aiResponse]);
+      } else {
+        // Regular conversational response (non-modification queries)
+        await new Promise((r) => setTimeout(r, 800));
+
+        const query = textToSend.toLowerCase();
+        let responseContent = "";
+        let suggestions: string[] = [];
+
+        if (
+          query.includes("pages") ||
+          query.includes("workspace") ||
+          query.includes("pagine")
+        ) {
+          const pageList = pages
+            .map((p) => `- ${p.emoji || "📄"} **${p.title}**`)
+            .slice(0, 5)
+            .join("\n");
+          responseContent = `Quack! Here are some pages from your workspace:\n\n${pageList || "No pages shared yet."}`;
+          suggestions = ["Find Gestione lavoro", "Summarize weekly schedule"];
+        } else if (
+          query.includes("gestione") ||
+          query.includes("lavoro") ||
+          query.includes("schedule")
+        ) {
+          const page = pages.find((p) =>
+            p.title.toLowerCase().includes("gestione")
+          );
+          if (page) {
+            responseContent = `I found **${page.emoji || "📄"} ${page.title}** (last edited ${page.last_edited}). It contains your weekly schedule simple table.`;
+          } else {
+            responseContent =
+              "I found a schedule reference, but the page doesn't seem to be shared.";
+          }
+          suggestions = ["Show pages"];
+        } else if (
+          query.includes("materie") ||
+          query.includes("database")
+        ) {
+          responseContent =
+            "I scanned your **Materie** database! It has subjects and professors (Boaglio, Marchisio, Cambieri, etc.).";
+          suggestions = ["Show pages"];
+        } else {
+          responseContent = `Quack! I indexed your query: "${textToSend}". I see pages like ${pages
+            .slice(0, 2)
+            .map((p) => `*${p.title}*`)
+            .join(" and ")} active.`;
+          suggestions = [
+            "What pages are in my workspace?",
+            "Summarize weekly schedule",
+          ];
+        }
+
+        const aiResponse: Message = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: responseContent,
+          timestamp: new Date(),
+          suggestions: suggestions.length > 0 ? suggestions : undefined,
+        };
+
+        setMessages((prev) => [...prev, aiResponse]);
+      }
+
+      setIsTyping(false);
+    },
+    [pages, selectedPageId, isModificationQuery]
+  );
+
+  const handleApplyEdits = useCallback(
+    async (messageId: string, edits: BlockEdit[]) => {
+      setIsApplying(true);
+
+      try {
+        const res = await fetch("/api/notion/apply-edits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instructions: edits }),
+        });
+
+        const data = await res.json();
+
+        // Mark edits as applied on the message
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, editsApplied: true } : msg
+          )
+        );
+
+        // Add confirmation message
+        const confirmMsg: Message = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: data.success
+            ? `✅ Successfully applied ${data.applied} change${data.applied !== 1 ? "s" : ""} to Notion! Refresh the page to see the updates.`
+            : `⚠️ Applied ${data.applied} changes, but ${data.failed} failed. ${data.errors?.join(", ") || ""}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, confirmMsg]);
+      } catch (error: any) {
+        const errorMsg: Message = {
+          id: `ai-${Date.now()}`,
+          role: "assistant",
+          content: `❌ Failed to apply changes: ${error.message}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+      }
+
+      setIsApplying(false);
+    },
+    []
+  );
+
+  const handleDiscardEdits = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId ? { ...msg, edits: undefined } : msg
+      )
+    );
+
+    const discardMsg: Message = {
+      id: `ai-${Date.now()}`,
+      role: "assistant",
+      content: "Changes discarded. Feel free to ask for something else!",
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, discardMsg]);
+  }, []);
 
   const handleClearHistory = () => {
     setMessages([]);
@@ -136,11 +302,17 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                 🦆
               </div>
               <div>
-                <h3 className="text-sm font-bold text-[#1a1a1a]">Notion AI Copilot</h3>
-                <p className="text-[10px] text-[#7c7b77] mt-0.5 font-medium leading-none">Instant workspace companion</p>
+                <h3 className="text-sm font-bold text-[#1a1a1a]">
+                  Notion AI Copilot
+                </h3>
+                <p className="text-[10px] text-[#7c7b77] mt-0.5 font-medium leading-none">
+                  {selectedPageId
+                    ? `Editing: ${pages.find((p) => p.id === selectedPageId)?.title || "Page"}`
+                    : "Instant workspace companion"}
+                </p>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
               {!isIdle && (
                 <button
@@ -161,10 +333,12 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
           </div>
 
           {/* Messages scrolling list */}
-          <div className={cn(
-            "flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-4",
-            isIdle ? "justify-center" : "justify-start"
-          )}>
+          <div
+            className={cn(
+              "flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-4",
+              isIdle ? "justify-center" : "justify-start"
+            )}
+          >
             {isIdle ? (
               /* IDLE STATE: Centered duck mascot and input */
               <div className="text-center space-y-5 flex flex-col items-center select-none">
@@ -176,28 +350,67 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                     {`ツ`}
                   </div>
                 </div>
-                
+
                 <div>
-                  <h4 className="text-base font-bold text-[#1a1a1a]">Quack! What's the plan?</h4>
-                  <p className="text-xs text-[#7a7a78] mt-0.5">Ask anything about your workspace</p>
+                  <h4 className="text-base font-bold text-[#1a1a1a]">
+                    Quack! What&apos;s the plan?
+                  </h4>
+                  <p className="text-xs text-[#7a7a78] mt-0.5">
+                    {selectedPageId
+                      ? "Ask me to modify this page"
+                      : "Ask anything about your workspace"}
+                  </p>
                 </div>
 
                 {/* Compact prompt button chips */}
                 <div className="flex flex-wrap justify-center gap-2 pt-1.5">
-                  <button 
-                    onClick={() => handleSendMessage("What pages are in my workspace?")}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
-                  >
-                    <Search className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Search pages</span>
-                  </button>
-                  <button 
-                    onClick={() => handleSendMessage("Summarize weekly schedule")}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
-                  >
-                    <Table className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Schedule</span>
-                  </button>
+                  {selectedPageId ? (
+                    <>
+                      <button
+                        onClick={() =>
+                          handleSendMessage(
+                            "Rewrite all headings to be more descriptive"
+                          )
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                        <span>Rewrite headings</span>
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleSendMessage("Fix grammar and spelling errors")
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
+                      >
+                        <Search className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Fix grammar</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() =>
+                          handleSendMessage(
+                            "What pages are in my workspace?"
+                          )
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
+                      >
+                        <Search className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Search pages</span>
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleSendMessage("Summarize weekly schedule")
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full text-[10.5px] font-semibold text-[#7c7b77] shadow-sm cursor-pointer"
+                      >
+                        <Table className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Schedule</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -207,25 +420,60 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                   <div
                     key={msg.id}
                     className={cn(
-                      "flex gap-3 max-w-[88%] animate-scale-in",
-                      msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"
+                      "flex gap-3 max-w-[95%] animate-scale-in",
+                      msg.role === "user"
+                        ? "ml-auto flex-row-reverse"
+                        : "mr-auto"
                     )}
                   >
                     {/* Avatar */}
-                    <div className={cn(
-                      "h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 select-none shadow-sm border text-xs",
-                      msg.role === "user" ? "bg-[#edece9] text-[#37352f]" : "bg-purple-100 text-purple-700"
-                    )}>
-                      {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                    <div
+                      className={cn(
+                        "h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 select-none shadow-sm border text-xs",
+                        msg.role === "user"
+                          ? "bg-[#edece9] text-[#37352f]"
+                          : "bg-purple-100 text-purple-700"
+                      )}
+                    >
+                      {msg.role === "user" ? (
+                        <User className="w-4 h-4" />
+                      ) : (
+                        <Bot className="w-4 h-4" />
+                      )}
                     </div>
 
-                    <div className="space-y-1.5">
-                      <div className={cn(
-                        "p-3 text-sm leading-relaxed rounded-xl shadow-sm border",
-                        msg.role === "user" ? "bg-[#37352f] text-white border-neutral-800" : "bg-[#f7f7f5]/40 text-[#37352f] border-[#edece9]"
-                      )}>
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div
+                        className={cn(
+                          "p-3 text-sm leading-relaxed rounded-xl shadow-sm border",
+                          msg.role === "user"
+                            ? "bg-[#37352f] text-white border-neutral-800"
+                            : "bg-[#f7f7f5]/40 text-[#37352f] border-[#edece9]"
+                        )}
+                      >
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       </div>
+
+                      {/* Diff Viewer for edit proposals */}
+                      {msg.edits &&
+                        msg.edits.length > 0 &&
+                        !msg.editsApplied && (
+                          <DiffViewer
+                            edits={msg.edits}
+                            onApply={() =>
+                              handleApplyEdits(msg.id, msg.edits!)
+                            }
+                            onDiscard={() => handleDiscardEdits(msg.id)}
+                            isApplying={isApplying}
+                          />
+                        )}
+
+                      {/* Applied badge */}
+                      {msg.editsApplied && (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 border border-green-200 rounded-lg text-[10px] font-bold">
+                          ✅ Changes applied
+                        </div>
+                      )}
 
                       {/* Suggestions */}
                       {msg.suggestions && msg.suggestions.length > 0 && (
@@ -248,15 +496,10 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                 {isTyping && (
                   <div className="flex gap-2.5 mr-auto max-w-[80%] select-none">
                     <div className="h-8 w-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center flex-shrink-0 text-xs">
-                      <Bot className="w-4 h-4 animate-pulse" />
+                      <Loader2 className="w-4 h-4 animate-spin" />
                     </div>
                     <div className="p-3 bg-[#f7f7f5]/40 text-[#7c7b77] border border-[#edece9] rounded-xl flex items-center gap-1.5 shadow-sm text-xs">
-                      <span className="flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 bg-[#7c7b77] rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                        <span className="h-1.5 w-1.5 bg-[#7c7b77] rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                        <span className="h-1.5 w-1.5 bg-[#7c7b77] rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
-                      </span>
-                      <span>Thinking...</span>
+                      <span>Analyzing page blocks...</span>
                     </div>
                   </div>
                 )}
@@ -280,7 +523,11 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask anything..."
+                  placeholder={
+                    selectedPageId
+                      ? "Ask to modify this page..."
+                      : "Ask anything..."
+                  }
                   className="w-full outline-none border-none text-sm text-[#37352f] placeholder-[#a4a3a1] bg-transparent py-0.5 select-text"
                 />
                 <div className="flex items-center justify-between border-t border-[#f1f1ef] pt-2.5 text-[#7a7a78]">
@@ -295,8 +542,8 @@ export function FloatingAIChat({ pages }: FloatingAIChatProps) {
                       disabled={!input.trim()}
                       className={cn(
                         "p-1.5 rounded cursor-pointer transition-all border",
-                        input.trim() 
-                          ? "bg-[#37352f] border-neutral-800 text-white hover:bg-neutral-800" 
+                        input.trim()
+                          ? "bg-[#37352f] border-neutral-800 text-white hover:bg-neutral-800"
                           : "bg-white border-neutral-200 text-neutral-300 cursor-not-allowed"
                       )}
                     >

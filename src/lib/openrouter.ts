@@ -20,7 +20,7 @@ export async function chatCompletion(
   messages: ChatMessage[],
   options: ChatOptions = {}
 ): Promise<string> {
-  const model = options.model || "google/gemini-2.5-pro";
+  const model = options.model || "inclusionai/ling-2.6-flash";
   const apiKey = process.env.OPENROUTER_API_KEY || "";
 
   try {
@@ -61,7 +61,7 @@ export async function streamingOutput(
   onChunk: (text: string) => void,
   options: ChatOptions = {}
 ): Promise<void> {
-  const model = options.model || "google/gemini-2.5-pro";
+  const model = options.model || "inclusionai/ling-2.6-flash";
   const apiKey = process.env.OPENROUTER_API_KEY || "";
 
   try {

@@ -884,7 +884,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </main>
       
       {/* Global Floating AI Assistant Widget */}
-      <FloatingAIChat pages={pages} />
+      <FloatingAIChat pages={pages} selectedPageId={selectedPageId || null} />
     </div>
   );
 }
