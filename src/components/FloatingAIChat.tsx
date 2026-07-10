@@ -113,6 +113,11 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
             };
 
             setMessages((prev) => [...prev, aiResponse]);
+
+            // Dispatch pending edits event so PageBlocksContainer can show the diff preview on the main page content!
+            window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
+              detail: { edits: data.instructions, pageId: selectedPageId }
+            }));
           } else {
             const aiResponse: Message = {
               id: `ai-${Date.now()}`,
@@ -213,6 +218,11 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
           )
         );
 
+        // Clear pending edits preview on main page
+        window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
+          detail: { edits: null, pageId: null }
+        }));
+
         // Add confirmation message
         const confirmMsg: Message = {
           id: `ai-${Date.now()}`,
@@ -247,6 +257,11 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
         msg.id === messageId ? { ...msg, edits: undefined } : msg
       )
     );
+
+    // Clear pending edits preview on main page
+    window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
+      detail: { edits: null, pageId: null }
+    }));
 
     const discardMsg: Message = {
       id: `ai-${Date.now()}`,

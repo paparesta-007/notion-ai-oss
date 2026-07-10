@@ -13,6 +13,7 @@ import { Block, Page } from "@/lib/types";
 import { BlockRenderer, PageIcon, RichTextRenderer } from "@/components/BlockRenderer";
 import { MOCK_PAGES, MOCK_PAGE_CONTENTS } from "@/lib/mockData";
 import { FloatingAIChat } from "@/components/FloatingAIChat";
+import { PageBlocksContainer } from "@/components/PageBlocksContainer";
 
 // Import shadcn components
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -734,17 +735,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     </div>
                   )}
                   
-                  {pageBlocks.length === 0 && !blockFetchError ? (
-                    <div className="text-center py-12 text-sm text-[#7c7b77]">
-                      This page has no content.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {pageBlocks.map((block, idx) => (
-                        <BlockRenderer key={idx} block={block} isMock={!!session.isMock} />
-                      ))}
-                    </div>
-                  )}
+                  <PageBlocksContainer 
+                    initialBlocks={pageBlocks} 
+                    isMock={!!session.isMock} 
+                    pageId={selectedPageId || ""} 
+                  />
                 </div>
               </div>
             ) : (

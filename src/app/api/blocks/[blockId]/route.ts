@@ -87,10 +87,13 @@ export async function GET(
               const rowData = await rowRes.json();
               const rows = rowData.results.map((rowBlock: any) => {
                 if (rowBlock.type === "table_row" && rowBlock.table_row?.cells) {
-                  return rowBlock.table_row.cells;
+                  return {
+                    id: rowBlock.id,
+                    cells: rowBlock.table_row.cells
+                  };
                 }
-                return [];
-              });
+                return null;
+              }).filter(Boolean);
               return {
                 type,
                 content: "",
