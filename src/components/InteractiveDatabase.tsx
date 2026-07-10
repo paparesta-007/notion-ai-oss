@@ -64,11 +64,29 @@ const NOTION_TAG_COLORS: Record<string, string> = {
   red: "bg-[#fdebec] text-[#853d3d] border-[#f6c0c0]/50",
 };
 
+function parseAndRenderText(text: string) {
+  if (!text) return "";
+  
+  // Split text by $$...$$ (block math) and $...$ (inline math)
+  const parts = text.split(/(\$\$.*?\$\$|\$.*?\$)/g);
+  
+  return parts.map((part, idx) => {
+    if (part.startsWith("$$") && part.endsWith("$$")) {
+      const math = part.slice(2, -2);
+      return <Latex key={idx} math={math} block={true} />;
+    } else if (part.startsWith("$") && part.endsWith("$")) {
+      const math = part.slice(1, -1);
+      return <Latex key={idx} math={math} block={false} />;
+    }
+    return <span key={idx}>{part}</span>;
+  });
+}
+
 /* Client-side Rich Text Renderer (supports inline equations) */
 function ClientRichTextRenderer({ textArr }: { textArr?: any }) {
   if (!textArr) return null;
   if (typeof textArr === "string") {
-    return <span className="whitespace-pre-wrap">{textArr}</span>;
+    return <span className="whitespace-pre-wrap">{parseAndRenderText(textArr)}</span>;
   }
   if (!Array.isArray(textArr)) return null;
 
@@ -82,12 +100,12 @@ function ClientRichTextRenderer({ textArr }: { textArr?: any }) {
           return <Latex key={idx} math={t.equation.expression} block={false} />;
         }
 
-        let element = <span key={idx}>{text?.content || t.plain_text || ""}</span>;
+        let element = <span key={idx}>{parseAndRenderText(text?.content || t.plain_text || "")}</span>;
 
-        if (annotations?.bold) element = <strong key={idx} className="font-bold text-[#1a1a1a]">{text?.content || t.plain_text}</strong>;
-        if (annotations?.italic) element = <em key={idx} className="italic">{text?.content || t.plain_text}</em>;
-        if (annotations?.underline) element = <u key={idx} className="underline">{text?.content || t.plain_text}</u>;
-        if (annotations?.strikethrough) element = <span key={idx} className="line-through">{text?.content || t.plain_text}</span>;
+        if (annotations?.bold) element = <strong key={idx} className="font-bold text-[#1a1a1a]">{parseAndRenderText(text?.content || t.plain_text || "")}</strong>;
+        if (annotations?.italic) element = <em key={idx} className="italic">{parseAndRenderText(text?.content || t.plain_text || "")}</em>;
+        if (annotations?.underline) element = <u key={idx} className="underline">{parseAndRenderText(text?.content || t.plain_text || "")}</u>;
+        if (annotations?.strikethrough) element = <span key={idx} className="line-through">{parseAndRenderText(text?.content || t.plain_text || "")}</span>;
         if (annotations?.code) element = <code key={idx} className="bg-[#edece9]/50 px-1 py-0.5 rounded font-mono text-xs">{text?.content || t.plain_text}</code>;
 
         if (href) {

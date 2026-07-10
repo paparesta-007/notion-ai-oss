@@ -12,6 +12,7 @@ import { AIChatbot } from "@/components/AIChatbot";
 import { Block, Page } from "@/lib/types";
 import { BlockRenderer, PageIcon, RichTextRenderer } from "@/components/BlockRenderer";
 import { MOCK_PAGES, MOCK_PAGE_CONTENTS } from "@/lib/mockData";
+import { FloatingAIChat } from "@/components/FloatingAIChat";
 
 // Import shadcn components
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,34 @@ export const dynamic = "force-dynamic";
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+interface BreadcrumbItem {
+  id?: string;
+  title: string;
+  emoji?: string | null;
+}
+
+function getPageBreadcrumbs(selectedPageId: string, pages: any[]): BreadcrumbItem[] {
+  const crumbs: BreadcrumbItem[] = [];
+  let currentId: string | undefined = selectedPageId;
+  const visited = new Set<string>();
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const page = pages.find((p) => p.id === currentId);
+    if (!page) break;
+
+    crumbs.unshift({
+      id: page.id,
+      title: page.title,
+      emoji: page.emoji,
+    });
+
+    currentId = page.parentId;
+  }
+
+  return crumbs;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
@@ -176,6 +205,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         icon = page.icon.file.url;
       }
 
+      const parentId = page.parent?.type === "page_id" 
+        ? page.parent.page_id 
+        : page.parent?.type === "database_id"
+        ? page.parent.database_id
+        : undefined;
+
       return {
         id: page.id,
         title,
@@ -183,10 +218,24 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         created: new Date(page.created_time).toLocaleDateString(),
         last_edited: new Date(page.last_edited_time).toLocaleDateString(),
         emoji: icon,
+        parentId,
       };
     });
   } else {
-    fetchError = "Connection failed. Please check your credentials or API status.";
+    // Check if we have stale pages in cache
+    const cacheKey = `pages_list:${session.accessToken}`;
+    const cachedPages = getCached<any[]>(cacheKey);
+    if (cachedPages) {
+      pages = cachedPages;
+    } else {
+      fetchError = "Connection failed. Please check your credentials or API status.";
+    }
+  }
+
+  // Save the pages list to cache if successful
+  if (pages.length > 0 && !session.isMock) {
+    const cacheKey = `pages_list:${session.accessToken}`;
+    setCached(cacheKey, pages, 60000); // cache for 60s
   }
 
   // Determine selected page metadata
@@ -208,6 +257,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       icon = resolvedDetails.icon.file.url;
     }
 
+    const parentId = resolvedDetails.parent?.type === "page_id"
+      ? resolvedDetails.parent.page_id
+      : resolvedDetails.parent?.type === "database_id"
+      ? resolvedDetails.parent.database_id
+      : undefined;
+
     selectedPage = {
       id: resolvedDetails.id,
       title,
@@ -215,8 +270,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       created: new Date(resolvedDetails.created_time).toLocaleDateString(),
       last_edited: new Date(resolvedDetails.last_edited_time).toLocaleDateString(),
       emoji: icon,
+      parentId,
     };
   }
+
+  // Get recursive page breadcrumbs hierarchy
+  const breadcrumbs = selectedPageId ? getPageBreadcrumbs(selectedPageId, pages) : [];
 
   // Process selected page blocks content
   let pageBlocks: Block[] = [];
@@ -584,15 +643,21 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 </span>
               </>
             )}
-            {!isViewingAI && selectedPage && (
-              <>
+            {!isViewingAI && breadcrumbs.map((crumb, cIdx) => (
+              <React.Fragment key={crumb.id || cIdx}>
                 <span className="text-[#a4a3a1] font-normal font-sans">/</span>
-                <span className="text-[#7a7a78] font-semibold truncate max-w-[180px] flex items-center gap-1">
-                  <PageIcon emoji={selectedPage.emoji} className="w-3.5 h-3.5" />
-                  <span>{selectedPage.title}</span>
-                </span>
-              </>
-            )}
+                <Link 
+                  href={`/?pageId=${crumb.id}`}
+                  className={cn(
+                    "font-semibold truncate max-w-[180px] flex items-center gap-1 hover:underline",
+                    cIdx === breadcrumbs.length - 1 ? "text-[#37352f]" : "text-[#7a7a78]"
+                  )}
+                >
+                  <PageIcon emoji={crumb.emoji} className="w-3.5 h-3.5" />
+                  <span>{crumb.title}</span>
+                </Link>
+              </React.Fragment>
+            ))}
           </div>
           
           <div className="flex items-center gap-2">
@@ -818,6 +883,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </div>
       </main>
       
+      {/* Global Floating AI Assistant Widget */}
+      <FloatingAIChat pages={pages} />
     </div>
   );
 }
