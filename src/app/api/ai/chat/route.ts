@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
       })),
     ];
 
-    const model = "openai/gpt-4o-mini";
+    const model = "inclusionai/ling-2.6-flash";
     const answer = await chatCompletion(formattedMessages, { model, temperature: 0.7 });
 
     return NextResponse.json({ answer });

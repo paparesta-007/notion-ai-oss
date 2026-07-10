@@ -156,7 +156,7 @@ Rules:
     // Step 3: Call OpenRouter for structured output
     const result = await structuredOutput<AIEditsResponse>(messages, {}, {
       temperature: 0.15,
-      model: "openai/gpt-4o-mini",
+      model: "inclusionai/ling-2.6-flash",
     });
 
     return NextResponse.json({
