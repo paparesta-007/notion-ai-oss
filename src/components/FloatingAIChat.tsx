@@ -391,19 +391,45 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       </div>
 
-                      {/* Diff Viewer for edit proposals */}
-                      {msg.edits &&
-                        msg.edits.length > 0 &&
-                        !msg.editsApplied && (
-                          <DiffViewer
-                            edits={msg.edits}
-                            onApply={() =>
-                              handleApplyEdits(msg.id, msg.edits!)
-                            }
-                            onDiscard={() => handleDiscardEdits(msg.id)}
-                            isApplying={isApplying}
-                          />
-                        )}
+                      {/* Action buttons card for proposed edits */}
+                      {msg.edits && msg.edits.length > 0 && !msg.editsApplied && (
+                        <div className="mt-2.5 p-3 bg-purple-50/20 border border-purple-100 rounded-xl space-y-2 select-none animate-scale-in">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-purple-900 flex items-center gap-1">
+                              ✨ Proposed Edits
+                            </span>
+                            <span className="text-[10px] text-purple-700 font-bold px-1.5 py-0.5 bg-purple-50 rounded border border-purple-100">
+                              {msg.edits.length} block{msg.edits.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          
+                          <p className="text-[10.5px] text-[#7c7b77] leading-relaxed">
+                            Changes are highlighted in green and red directly on the page content. Review them and confirm:
+                          </p>
+
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              onClick={() => handleApplyEdits(msg.id, msg.edits!)}
+                              disabled={isApplying}
+                              className={cn(
+                                "flex-1 flex items-center justify-center h-8 rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-sm border",
+                                isApplying
+                                  ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed"
+                                  : "bg-[#37352f] text-white border-neutral-800 hover:bg-neutral-800"
+                              )}
+                            >
+                              Apply Changes
+                            </button>
+                            <button
+                              onClick={() => handleDiscardEdits(msg.id)}
+                              disabled={isApplying}
+                              className="flex items-center justify-center h-8 px-3 rounded-lg text-[11px] font-bold text-[#7c7b77] hover:text-red-600 bg-white hover:bg-red-50 border border-[#edece9] transition-all cursor-pointer shadow-sm"
+                            >
+                              Discard
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Applied badge */}
                       {msg.editsApplied && (
