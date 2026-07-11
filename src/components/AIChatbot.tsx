@@ -14,9 +14,24 @@ import {
   Search, 
   Presentation, 
   X,
-  Send
+  Send,
+  Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parseAndRenderText } from "./BlockRenderer";
+import { marked } from "marked";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
+} from "./ui/dropdown-menu";
 
 interface Page {
   id: string;
@@ -30,13 +45,19 @@ interface Page {
 interface AIChatbotProps {
   pages: Page[];
 }
-
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
   suggestions?: string[];
+  rationale?: string;
+}
+
+interface TaskItem {
+  id: string;
+  title: string;
+  status: "running" | "completed";
 }
 
 // App integrations list
@@ -51,20 +72,42 @@ const APP_ICONS = [
   { name: "Salesforce", color: "text-sky-500 bg-sky-50 border-sky-200" },
 ];
 
+function parseMarkdownToReact(text: string): React.ReactNode {
+  if (!text) return null;
+  
+  // Clean backslashes that AI often emits at the end of lines or in bullet points
+  const cleaned = text
+    .replace(/\\-/g, "")
+    .replace(/\\/g, "");
+
+  // Compile markdown with marked
+  const htmlContent = marked.parse(cleaned, { breaks: true, gfm: true }) as string;
+  
+  return (
+    <div 
+      className="markdown-content text-sm leading-relaxed text-[#37352f]"
+      dangerouslySetInnerHTML={{ __html: htmlContent }}
+    />
+  );
+}
+
 export function AIChatbot({ pages }: AIChatbotProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showAppsBanner, setShowAppsBanner] = useState(true);
   
+  // Trace of tool tasks executed by the AI workflow loop
+  const [activeTasks, setActiveTasks] = useState<TaskItem[]>([]);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, activeTasks]);
 
-  const handleSendMessage = (textToSend: string) => {
+  const handleSendMessage = async (textToSend: string) => {
     if (!textToSend.trim()) return;
 
     const userMessage: Message = {
@@ -74,88 +117,200 @@ export function AIChatbot({ pages }: AIChatbotProps) {
       timestamp: new Date()
     };
 
+    const chatHistory = [...messages, userMessage].map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsTyping(true);
+    setActiveTasks([]); // Reset tasks timeline trace
 
-    // Simulate AI response logic
-    setTimeout(() => {
-      setIsTyping(false);
-      
-      const query = textToSend.toLowerCase();
-      let responseContent = "";
-      let suggestions: string[] = [];
+    try {
+      // Call SSE endpoint
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: chatHistory,
+          selectedPageId: null, // Full-screen search runs across all pages
+          stream: true,
+        }),
+      });
 
-      if (query.includes("pages") || query.includes("workspace") || query.includes("pagine") || query.includes("create")) {
-        const pageList = pages.map(p => `- ${p.emoji || "📄"} **${p.title}** (Edited ${p.last_edited})`).join("\n");
-        responseContent = `Quack! I searched your workspace and found **${pages.length} pages**:\n\n${pageList || "No pages shared yet. Please share pages in Notion."}`;
-        suggestions = ["Find Gestione lavoro page details", "Summarize weekly schedule"];
-      } else if (query.includes("gestione") || query.includes("lavoro") || query.includes("schedule") || query.includes("slides")) {
-        const page = pages.find(p => p.title.toLowerCase().includes("gestione"));
-        if (page) {
-          responseContent = `I located the page **${page.emoji || "📄"} ${page.title}** in your workspace.\n\nIt was created on **${page.created}** and last modified on **${page.last_edited}**.\n\nIt features your weekly schedule grid and teacher databases. You can click on its name in the sidebar to open the page directly!`;
-        } else {
-          responseContent = "I found a schedule reference, but the page **Gestione lavoro** doesn't seem to be shared with my connection. Please check your page connection sharing settings in Notion.";
-        }
-        suggestions = ["Show all pages", "Open Gestione lavoro"];
-      } else if (query.includes("materie") || query.includes("database") || query.includes("spreadsheet")) {
-        responseContent = "I scanned your **Materie** database! It has columns for *Subject* and *Professor* (featuring teachers like Boaglio, Marchisio, Cambieri, Necchi, etc.).\n\nYou can query status and assign tasks to each teacher. Would you like me to explain how to add new professors to this database?";
-        suggestions = ["Show all pages", "How to add database row"];
-      } else {
-        responseContent = `Quack! I'm analyzing your Notion workspace index for "${textToSend}"...\n\nI can see you have pages like ${pages.slice(0, 2).map(p => `*${p.title}*`).join(" and ")} active.\n\nHow else can I assist you with your schedule or notes?`;
-        suggestions = ["Show all pages", "Summarize weekly schedule"];
+      if (!response.ok) {
+        throw new Error(`API error status: ${response.status}`);
       }
 
-      const aiResponse: Message = {
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine) continue;
+
+            // Handle task progress indicators
+            if (cleanLine.startsWith("data: ")) {
+              const dataStr = cleanLine.slice(6);
+              try {
+                const parsed = JSON.parse(dataStr);
+                
+                if (parsed.id && parsed.title) {
+                  // Update current task in timeline log
+                  setActiveTasks((prev) => {
+                    const exists = prev.find((t) => t.id === parsed.id);
+                    if (exists) {
+                      return prev.map((t) => 
+                        t.id === parsed.id ? { ...t, status: parsed.status } : t
+                      );
+                    } else {
+                      return [...prev, { id: parsed.id, title: parsed.title, status: parsed.status }];
+                    }
+                  });
+                } else if (parsed.rationale) {
+                  // Rationale chunk streaming in real-time
+                  setIsTyping(false);
+                  setMessages((prev) => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === "assistant" && lastMsg.id.startsWith("streaming-")) {
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, rationale: (lastMsg.rationale || "") + parsed.rationale }
+                      ];
+                    } else {
+                      return [
+                        ...prev,
+                        {
+                          id: `streaming-${Date.now()}`,
+                          role: "assistant",
+                          content: "",
+                          rationale: parsed.rationale,
+                          timestamp: new Date()
+                        }
+                      ];
+                    }
+                  });
+                } else if (parsed.content) {
+                  // Text chunk streaming in real-time
+                  setIsTyping(false);
+                  setMessages((prev) => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === "assistant" && lastMsg.id.startsWith("streaming-")) {
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, content: lastMsg.content + parsed.content }
+                      ];
+                    } else {
+                      return [
+                        ...prev,
+                        {
+                          id: `streaming-${Date.now()}`,
+                          role: "assistant",
+                          content: parsed.content,
+                          timestamp: new Date()
+                        }
+                      ];
+                    }
+                  });
+                } else if (parsed.answer) {
+                  // Text conversational final answer
+                  setIsTyping(false);
+                  setMessages((prev) => {
+                    const filtered = prev.filter((m) => !m.id.startsWith("streaming-"));
+                    const lastStreamingMsg = prev.find((m) => m.id.startsWith("streaming-"));
+                    return [
+                      ...filtered,
+                      {
+                        id: `ai-${Date.now()}`,
+                        role: "assistant",
+                        content: parsed.answer,
+                        rationale: parsed.rationale || lastStreamingMsg?.rationale,
+                        timestamp: new Date(),
+                        suggestions: ["Show all pages", "Find AWS notes"]
+                      }
+                    ];
+                  });
+                } else if (parsed.isModification) {
+                  // Edit actions final rationale response
+                  setIsTyping(false);
+                  setMessages((prev) => {
+                    const filtered = prev.filter((m) => !m.id.startsWith("streaming-"));
+                    const lastStreamingMsg = prev.find((m) => m.id.startsWith("streaming-"));
+                    return [
+                      ...filtered,
+                      {
+                        id: `ai-${Date.now()}`,
+                        role: "assistant",
+                        content: parsed.rationale || "I proposed modifications to the page blocks.",
+                        rationale: parsed.rationale || lastStreamingMsg?.rationale,
+                        timestamp: new Date()
+                      }
+                    ];
+                  });
+                }
+              } catch (e) {
+                // Ignore parse errors on partial streams
+              }
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Error executing streaming chatbot loop:", err);
+      const errorMessage: Message = {
         id: `ai-${Date.now()}`,
         role: "assistant",
-        content: responseContent,
-        timestamp: new Date(),
-        suggestions: suggestions.length > 0 ? suggestions : undefined
+        content: `Error: Failed to fetch AI answer. Reason: ${err.message || "Network request failed"}. Please make sure process.env.OPENROUTER_API_KEY is configured correctly in .env.local`,
+        timestamp: new Date()
       };
-
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1200);
+      setMessages((prev) => [...prev, errorMessage]);
+      setIsTyping(false);
+    }
   };
 
   const handleClearHistory = () => {
     setMessages([]);
+    setActiveTasks([]);
   };
 
   const isIdle = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] max-h-[850px] overflow-hidden select-text relative">
+    <div className="h-[calc(100vh-48px)] flex flex-col overflow-hidden select-text relative">
       {/* Active Chat Top Header */}
       {!isIdle && (
-        <div className="px-6 py-3 border-b border-[#edece9] bg-white flex items-center justify-between select-none">
-          <div className="flex items-center gap-2.5">
-            {/* Tiny Duck logo */}
-            <div className="h-7 w-7 bg-amber-50 rounded-full border border-amber-200 flex items-center justify-center text-sm">
-              🦆
-            </div>
-            <div>
-              <h2 className="text-xs font-bold text-[#1a1a1a]">Notion Assistant</h2>
-              <p className="text-[10px] text-[#7c7b77] mt-0.5 font-medium leading-none">Notion AI Chat</p>
-            </div>
-          </div>
+        <div className="px-6 py-2 bg-white flex items-center justify-end select-none border-b border-[#edece9]/50">
           <button
             onClick={handleClearHistory}
-            className="p-1.5 hover:bg-[#edece9] rounded text-[#7c7b77] hover:text-red-600 transition-colors focus:outline-none cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-[#7c7b77] hover:bg-[#edece9]/50 hover:text-red-600 rounded transition-colors cursor-pointer"
             title="Clear chat history"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span className="font-semibold">Clear Chat</span>
           </button>
         </div>
       )}
 
       {/* Main Container */}
       <div className={cn(
-        "flex-1 overflow-y-auto flex flex-col px-4 py-8",
+        "flex-1 overflow-y-auto flex flex-col px-4 py-8 custom-scrollbar",
         isIdle ? "justify-center" : "justify-start"
       )}>
         {isIdle ? (
-          /* IDLE / LANDING VIEW (Centered layout matching screenshot) */
+          /* IDLE / LANDING VIEW */
           <div className="max-w-xl w-full mx-auto text-center space-y-6 flex flex-col items-center">
             {/* Duck Mascot Logo */}
             <div className="relative flex flex-col items-center select-none animate-fade-in">
@@ -184,28 +339,86 @@ export function AIChatbot({ pages }: AIChatbotProps) {
                     handleSendMessage(input);
                   }
                 }}
-                placeholder="Do anything with AI..."
+                placeholder="Ask where a page is, query notes, or ask anything..."
                 rows={1}
                 className="w-full resize-none outline-none border-none text-sm text-[#37352f] placeholder-[#a4a3a1] bg-transparent py-1 select-text"
                 style={{ minHeight: "44px" }}
               />
 
               {/* Controls Toolbar row */}
-              <div className="flex items-center justify-between border-t border-[#f1f1ef] pt-3 text-[#7a7a78]">
+              <div className="flex items-center justify-between pt-2 text-[#7a7a78]">
                 {/* Left controls */}
                 <div className="flex items-center gap-2">
-                  <button className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer">
+                  <DropdownMenu>
+                  <DropdownMenuTrigger className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer outline-none flex items-center justify-center">
                     <Plus className="w-4 h-4" />
-                  </button>
-                  <button className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer">
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </button>
+                  </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 bg-white border border-[#edece9] shadow-md rounded-xl p-1 z-50">
+                      <DropdownMenuLabel className="px-2 py-1.5 text-xs font-bold text-[#7c7b77] uppercase tracking-wider">Quick Actions</DropdownMenuLabel>
+                      <DropdownMenuSeparator className="my-1 border-t border-[#edece9]" />
+                      
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                          <span className="flex items-center gap-2">📂 Workspace Pages</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-48 bg-white border border-[#edece9] shadow-md rounded-xl p-1 ml-1 z-50">
+                          <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none" onClick={() => handleSendMessage("Search workspace for notes")}>
+                            🔍 Find notes
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none" onClick={() => handleSendMessage("Show all pages")}>
+                            📄 Show all pages
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+
+                      <DropdownMenuItem 
+                        className="px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg cursor-pointer outline-none flex items-center gap-2"
+                        onClick={handleClearHistory}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Clear Chat History</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                      <DropdownMenuTrigger className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer outline-none flex items-center justify-center">
+                        <SlidersHorizontal className="w-4 h-4" />
+                      </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 bg-white border border-[#edece9] shadow-md rounded-xl p-1 z-50">
+                      <DropdownMenuLabel className="px-2 py-1.5 text-xs font-bold text-[#7c7b77] uppercase tracking-wider">AI Settings</DropdownMenuLabel>
+                      <DropdownMenuSeparator className="my-1 border-t border-[#edece9]" />
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                          <span>🤖 Model Selection</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="w-48 bg-white border border-[#edece9] shadow-md rounded-xl p-1 ml-1 z-50">
+                          <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none font-semibold">
+                            Gemini 2.6 Flash
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                            Gemini 3.5 Flash
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                            Gemini 3.1 Pro
+                          </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      
+                      <DropdownMenuItem 
+                        className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none"
+                        onClick={() => setShowAppsBanner(!showAppsBanner)}
+                      >
+                        {showAppsBanner ? "🙈 Hide Apps Banner" : "👁️ Show Apps Banner"}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 {/* Right controls */}
                 <div className="flex items-center gap-2.5">
-                  <span className="text-[11px] font-semibold bg-[#f7f7f5] border border-[#edece9] px-2 py-0.5 rounded shadow-sm text-[#7a7a78]">
-                    Auto
+                  <span className="text-[10px] font-bold bg-[#f0efea]/60 border border-[#eae9e4] px-2 py-0.5 rounded text-[#7a7a78] font-mono tracking-tighter">
+                    L-2.6-FLASH
                   </span>
                   <button className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer">
                     <Mic className="w-4 h-4" />
@@ -259,44 +472,37 @@ export function AIChatbot({ pages }: AIChatbotProps) {
             {/* Quick Actions Row */}
             <div className="flex flex-wrap justify-center items-center gap-4 text-xs font-semibold text-[#7c7b77] pt-2 select-none animate-fade-in">
               <button 
-                onClick={() => handleSendMessage("Create slide presentation outline")}
+                onClick={() => handleSendMessage("dov'è pagina dove parlo globalizzazione")}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full shadow-sm hover:border-[#c3c2c0] transition-all cursor-pointer"
               >
-                <Presentation className="w-3.5 h-3.5 text-amber-500" />
-                <span>Create Slides</span>
+                <Search className="w-3.5 h-3.5 text-amber-500" />
+                <span>Find Globalization notes</span>
               </button>
               <button 
-                onClick={() => handleSendMessage("Show spreadsheets for my databases")}
+                onClick={() => handleSendMessage("Search workspace for Scuola and list it")}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full shadow-sm hover:border-[#c3c2c0] transition-all cursor-pointer"
               >
                 <Table className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Spreadsheets</span>
+                <span>Find Scuola page</span>
               </button>
               <button 
-                onClick={() => handleSendMessage("Research page contents")}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full shadow-sm hover:border-[#c3c2c0] transition-all cursor-pointer"
-              >
-                <Search className="w-3.5 h-3.5 text-blue-500" />
-                <span>Research</span>
-              </button>
-              <button 
-                onClick={() => handleSendMessage("Visualize database professors and subjects")}
+                onClick={() => handleSendMessage("List my notes about AWS CLF-02")}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-[#f7f7f5] border border-[#edece9] rounded-full shadow-sm hover:border-[#c3c2c0] transition-all cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                <span>Visualize</span>
+                <span>AWS Notes</span>
               </button>
             </div>
           </div>
         ) : (
-          /* ACTIVE CHAT VIEW (Slide-up messages overlay) */
+          /* ACTIVE CHAT VIEW */
           <div className="max-w-2xl w-full mx-auto flex flex-col space-y-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}
                 className={cn(
-                  "flex gap-3 max-w-[85%] animate-scale-in",
-                  msg.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"
+                  "flex gap-3 animate-scale-in w-full",
+                  msg.role === "user" ? "max-w-[85%] ml-auto flex-row-reverse" : "max-w-full mr-auto"
                 )}
               >
                 {/* Avatar */}
@@ -312,17 +518,34 @@ export function AIChatbot({ pages }: AIChatbotProps) {
                 </div>
 
                 {/* Bubble content */}
-                <div className="space-y-1.5">
-                  <div
-                    className={cn(
-                      "p-3.5 text-sm leading-relaxed rounded-xl shadow-sm border",
-                      msg.role === "user"
-                        ? "bg-[#37352f] text-white border-neutral-800"
-                        : "bg-[#f7f7f5]/40 text-[#37352f] border-[#edece9]"
-                    )}
-                  >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
-                  </div>
+                <div className="space-y-1.5 flex-1">
+                  {msg.rationale && (
+                    <details className="mb-2 text-xs text-[#7c7b77] border border-[#edece9] bg-[#faf9f6] rounded-lg p-2.5 select-none w-full max-w-lg">
+                      <summary className="font-bold text-[#5f5e5a] cursor-pointer outline-none hover:text-black transition-colors flex items-center gap-1.5">
+                        <span>💭</span>
+                        <span>Thought Process</span>
+                      </summary>
+                      <div className="mt-1.5 whitespace-pre-wrap select-text leading-relaxed font-sans border-t border-[#edece9]/80 pt-1.5 text-neutral-600">
+                        {msg.rationale}
+                      </div>
+                    </details>
+                  )}
+                  
+                  {msg.content && (
+                    <div
+                      className={cn(
+                        msg.role === "user"
+                          ? "p-3.5 text-sm leading-relaxed rounded-xl shadow-sm border bg-[#37352f] text-white border-neutral-800"
+                          : "p-1 text-sm leading-relaxed bg-transparent text-[#37352f]"
+                      )}
+                    >
+                      {msg.role === "user" ? (
+                        <div className="whitespace-pre-wrap">{msg.content}</div>
+                      ) : (
+                        parseMarkdownToReact(msg.content)
+                      )}
+                    </div>
+                  )}
 
                   {/* Suggestion buttons */}
                   {msg.suggestions && msg.suggestions.length > 0 && (
@@ -341,6 +564,31 @@ export function AIChatbot({ pages }: AIChatbotProps) {
                 </div>
               </div>
             ))}
+
+            {/* Workflow Agent Task Progress Console */}
+            {isTyping && activeTasks.length > 0 && (
+              <div className="bg-[#f0efea]/40 border border-[#eae9e4] rounded-lg p-3.5 space-y-2 text-xs font-mono text-[#5f5e5a] max-w-[85%] mr-auto shadow-sm select-none animate-scale-in">
+                <div className="flex items-center gap-1.5 font-bold text-[#37352f] uppercase select-none border-b border-[#eae9e4]/60 pb-1">
+                  <Loader2 className="w-3.5 h-3.5 text-purple-600 animate-spin" />
+                  <span>AI Workflow Progress HUD</span>
+                </div>
+                <div className="space-y-1.5">
+                  {activeTasks.map((t) => (
+                    <div key={t.id} className="flex justify-between items-center gap-4">
+                      <span className="truncate">{t.title}</span>
+                      <span className={cn(
+                        "font-semibold uppercase tracking-wider text-[8px] px-1.5 py-0.5 rounded border shadow-sm",
+                        t.status === "running"
+                          ? "bg-amber-50 text-amber-600 border-amber-200 animate-pulse"
+                          : "bg-emerald-50 text-emerald-600 border-emerald-200"
+                      )}>
+                        {t.status === "running" ? "RUNNING" : "COMPLETED"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Typing Indicator */}
             {isTyping && (
@@ -366,33 +614,120 @@ export function AIChatbot({ pages }: AIChatbotProps) {
 
       {/* Floating Active Chat Bottom Input Box */}
       {!isIdle && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSendMessage(input);
-          }}
-          className="p-4 bg-white border-t border-[#edece9] flex items-center gap-3 select-none"
-        >
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Do anything with AI..."
-            className="flex-1 h-9 px-4 text-xs bg-[#f7f7f5]/60 hover:bg-[#f7f7f5] border border-[#edece9] rounded-lg outline-none focus:border-purple-500 focus:bg-white transition-all select-text"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isTyping}
-            className={cn(
-              "h-9 w-9 flex items-center justify-center rounded-lg shadow-sm border transition-all cursor-pointer",
-              input.trim() && !isTyping
-                ? "bg-[#37352f] text-white border-neutral-800 hover:bg-neutral-800"
-                : "bg-[#f7f7f5] text-neutral-300 border-neutral-200/50 cursor-not-allowed"
-            )}
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
+        <div className="pb-6 px-4 bg-white select-none">
+          <div className="max-w-2xl w-full mx-auto bg-white border border-[#edece9] rounded-2xl shadow-lg p-3.5 space-y-3.5 text-left transition-all hover:border-[#c3c2c0]">
+            {/* Text Input area */}
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim() && !isTyping) {
+                    handleSendMessage(input);
+                  }
+                }
+              }}
+              placeholder="Ask where a page is, query notes, or ask anything..."
+              rows={1}
+              className="w-full resize-none outline-none border-none text-sm text-[#37352f] placeholder-[#a4a3a1] bg-transparent py-1 select-text"
+              style={{ minHeight: "44px" }}
+            />
+
+            {/* Controls Toolbar row */}
+            <div className="flex items-center justify-between pt-2 text-[#7a7a78]">
+              {/* Left controls */}
+              <div className="flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer outline-none flex items-center justify-center">
+                    <Plus className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56 bg-white border border-[#edece9] shadow-md rounded-xl p-1 z-50">
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs font-bold text-[#7c7b77] uppercase tracking-wider">Quick Actions</DropdownMenuLabel>
+                    <DropdownMenuSeparator className="my-1 border-t border-[#edece9]" />
+                    
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                        <span className="flex items-center gap-2">📂 Workspace Pages</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-48 bg-white border border-[#edece9] shadow-md rounded-xl p-1 ml-1 z-50">
+                        <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none" onClick={() => handleSendMessage("Search workspace for notes")}>
+                          🔍 Find notes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none" onClick={() => handleSendMessage("Show all pages")}>
+                          📄 Show all pages
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+
+                    <DropdownMenuItem 
+                      className="px-2 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg cursor-pointer outline-none flex items-center gap-2"
+                      onClick={handleClearHistory}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Clear Chat History</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer outline-none flex items-center justify-center">
+                    <SlidersHorizontal className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56 bg-white border border-[#edece9] shadow-md rounded-xl p-1 z-50">
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs font-bold text-[#7c7b77] uppercase tracking-wider">AI Settings</DropdownMenuLabel>
+                    <DropdownMenuSeparator className="my-1 border-t border-[#edece9]" />
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                        <span>🤖 Model Selection</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-48 bg-white border border-[#edece9] shadow-md rounded-xl p-1 ml-1 z-50">
+                        <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none font-semibold">
+                          Gemini 2.6 Flash
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                          Gemini 3.5 Flash
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none">
+                          Gemini 3.1 Pro
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    
+                    <DropdownMenuItem 
+                      className="px-2 py-1.5 text-sm text-[#37352f] hover:bg-[#edece9]/40 rounded-lg cursor-pointer outline-none"
+                      onClick={() => setShowAppsBanner(!showAppsBanner)}
+                    >
+                      {showAppsBanner ? "🙈 Hide Apps Banner" : "👁️ Show Apps Banner"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {/* Right controls */}
+              <div className="flex items-center gap-2.5">
+                <span className="text-[10px] font-bold bg-[#f0efea]/60 border border-[#eae9e4] px-2 py-0.5 rounded text-[#7a7a78] font-mono tracking-tighter">
+                  L-2.6-FLASH
+                </span>
+                <button className="p-1.5 hover:bg-[#edece9]/50 rounded transition-colors cursor-pointer">
+                  <Mic className="w-4 h-4" />
+                </button>
+                <button
+                  disabled={!input.trim() || isTyping}
+                  onClick={() => handleSendMessage(input)}
+                  className={cn(
+                    "p-1.5 rounded transition-all cursor-pointer shadow-sm border",
+                    input.trim() && !isTyping
+                      ? "bg-[#37352f] border-neutral-800 text-white hover:bg-neutral-800"
+                      : "bg-[#f7f7f5] border-neutral-200 text-neutral-300 cursor-not-allowed"
+                  )}
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

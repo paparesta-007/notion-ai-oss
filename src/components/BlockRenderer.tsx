@@ -3,8 +3,29 @@
 import React from "react";
 import { CheckSquare, FileText, ExternalLink, FileCode, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Block } from "@/lib/types";
 import { Latex } from "./Latex";
+
+const NOTION_TEXT_COLORS: Record<string, string> = {
+  gray: "text-gray-500",
+  brown: "text-[#976d57]",
+  orange: "text-[#d9730d]",
+  yellow: "text-[#dfab01]",
+  green: "text-[#0f7b53] font-medium",
+  blue: "text-[#0969da]",
+  purple: "text-[#8250df]",
+  pink: "text-[#bf3989]",
+  red: "text-[#cf222e]",
+  gray_background: "bg-[#f1f1ef] px-1 rounded",
+  brown_background: "bg-[#f4eeee] px-1 rounded",
+  orange_background: "bg-[#fbecdd] px-1 rounded",
+  yellow_background: "bg-[#fbf3db] px-1 rounded",
+  green_background: "bg-[#edf6f2] px-1 rounded text-[#0f7b53]",
+  blue_background: "bg-[#eef6fc] px-1 rounded",
+  purple_background: "bg-[#fbf4fc] px-1 rounded",
+  pink_background: "bg-[#fdf4f7] px-1 rounded",
+  red_background: "bg-[#fdf2f2] px-1 rounded",
+};
+import { Block } from "@/lib/types";
 import { CodeBlock } from "./CodeBlock";
 import { InteractiveDatabase } from "./InteractiveDatabase";
 import { InteractiveButton } from "./InteractiveButton";
@@ -13,6 +34,16 @@ import { type BlockEdit } from "./DiffViewer";
 
 export function PageIcon({ emoji, className = "w-4 h-4" }: { emoji?: string | null; className?: string }) {
   if (emoji && emoji.length > 0 && !["📄", "🔗", "📎"].includes(emoji)) {
+    if (emoji.startsWith("http://") || emoji.startsWith("https://")) {
+      return (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={emoji}
+          alt="icon"
+          className={cn(className, "object-contain rounded flex-shrink-0")}
+        />
+      );
+    }
     return <span className="text-base flex-shrink-0 leading-none">{emoji}</span>;
   }
   return <FileText className={cn(className, "text-[#7a7a78] flex-shrink-0")} />;
@@ -124,13 +155,16 @@ export function RichTextRenderer({ textArr }: { textArr?: any }) {
           return <Latex key={idx} math={t.equation.expression} block={false} />;
         }
 
-        let element = <span key={idx}>{parseAndRenderText(text?.content || t.plain_text || "")}</span>;
+        const textColorClass = annotations?.color && NOTION_TEXT_COLORS[annotations.color] ? NOTION_TEXT_COLORS[annotations.color] : "";
+        const textContent = parseAndRenderText(text?.content || t.plain_text || "");
 
-        if (annotations?.bold) element = <strong key={idx} className="font-bold text-[#1a1a1a]">{parseAndRenderText(text?.content || t.plain_text || "")}</strong>;
-        if (annotations?.italic) element = <em key={idx} className="italic">{parseAndRenderText(text?.content || t.plain_text || "")}</em>;
-        if (annotations?.underline) element = <u key={idx} className="underline">{parseAndRenderText(text?.content || t.plain_text || "")}</u>;
-        if (annotations?.strikethrough) element = <span key={idx} className="line-through">{parseAndRenderText(text?.content || t.plain_text || "")}</span>;
-        if (annotations?.code) element = <code key={idx} className="bg-[#edece9]/50 px-1 py-0.5 rounded font-mono text-xs">{text?.content || t.plain_text}</code>;
+        let element = <span key={idx} className={textColorClass}>{textContent}</span>;
+
+        if (annotations?.bold) element = <strong key={idx} className={cn("font-bold text-[#1a1a1a]", textColorClass)}>{textContent}</strong>;
+        if (annotations?.italic) element = <em key={idx} className={cn("italic", textColorClass)}>{textContent}</em>;
+        if (annotations?.underline) element = <u key={idx} className={cn("underline", textColorClass)}>{textContent}</u>;
+        if (annotations?.strikethrough) element = <span key={idx} className={cn("line-through", textColorClass)}>{textContent}</span>;
+        if (annotations?.code) element = <code key={idx} className={cn("bg-[#edece9]/50 px-1 py-0.5 rounded font-mono text-xs", textColorClass)}>{text?.content || t.plain_text}</code>;
 
         if (href) {
           element = (
@@ -178,48 +212,128 @@ export function InlineDiff({ original, modified }: { original: string; modified:
   );
 }
 
+function getHexColor(color: string): string {
+  const map: Record<string, string> = {
+    gray: "#787774",
+    brown: "#976d57",
+    orange: "#d9730d",
+    yellow: "#dfab01",
+    green: "#0f7b53",
+    blue: "#0969da",
+    purple: "#8250df",
+    pink: "#bf3989",
+    red: "#cf222e",
+    gray_background: "#f1f1ef",
+    brown_background: "#f4eeee",
+    orange_background: "#fbecdd",
+    yellow_background: "#fbf3db",
+    green_background: "#edf6f2",
+    blue_background: "#eef6fc",
+    purple_background: "#fbf4fc",
+    pink_background: "#fdf4f7",
+    red_background: "#fdf2f2",
+  };
+  return map[color] || "";
+}
+
+function richTextToHtml(richText?: any[], blockContent?: string): string {
+  if (!richText || richText.length === 0) {
+    return blockContent || "";
+  }
+  
+  return richText.map(t => {
+    const { annotations, text, href } = t;
+    let content = text?.content || t.plain_text || "";
+    
+    if (annotations?.bold) content = `<strong>${content}</strong>`;
+    if (annotations?.italic) content = `<em>${content}</em>`;
+    if (annotations?.underline) content = `<u>${content}</u>`;
+    if (annotations?.strikethrough) content = `<span style="text-decoration: line-through;">${content}</span>`;
+    if (annotations?.code) content = `<code class="bg-[#edece9]/50 px-1 py-0.5 rounded font-mono text-xs">${content}</code>`;
+    if (annotations?.color && NOTION_TEXT_COLORS[annotations.color]) {
+      const colorStyle = annotations.color.includes("background") 
+        ? `background-color: ${getHexColor(annotations.color)}` 
+        : `color: ${getHexColor(annotations.color)}`;
+      content = `<span style="${colorStyle}">${content}</span>`;
+    }
+    
+    if (href) {
+      content = `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #2383e2; text-decoration: underline;">${content}</a>`;
+    }
+    
+    return content;
+  }).join("");
+}
+
 interface BlockRendererProps {
   block: Block;
   isMock: boolean;
   pendingEdit?: BlockEdit;
   pendingEdits?: BlockEdit[];
+  onUpdate?: (newHtml: string) => void;
+  isEditable?: boolean;
 }
 
-export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: BlockRendererProps) {
+export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits, onUpdate, isEditable = true }: BlockRendererProps) {
   const { type, content, checked, language } = block;
 
-  // Helper to render standard rich text contents within a block type
-  const renderInnerBlock = (blockType: string, blockContent: string) => {
+  const renderEditableWrapper = (tag: string, className: string, rawContent: string, richTextArray?: any[]) => {
+    const Tag = tag as any;
+    const initialHtml = richTextToHtml(richTextArray, rawContent);
+    const ref = useRef<HTMLDivElement>(null);
+
+    return (
+      <Tag
+        ref={ref}
+        contentEditable={isEditable}
+        suppressContentEditableWarning
+        className={cn(
+          "outline-none focus:bg-[#f7f7f5]/40 px-1 py-0.5 rounded cursor-text min-h-[1.5em] transition-all",
+          className
+        )}
+        dangerouslySetInnerHTML={{ __html: initialHtml }}
+        onBlur={() => {
+          if (ref.current && onUpdate) {
+            onUpdate(ref.current.innerHTML);
+          }
+        }}
+      />
+    );
+  };
+
+  const renderInnerBlock = (blockType: string, blockContent: string, richText?: any[]) => {
     switch (blockType) {
       case "heading_1":
         return (
           <h1 className="text-[28px] font-bold text-[#1a1a1a] mt-8 mb-3 tracking-tight leading-tight border-b border-[#f1f1ef] pb-2">
-            {parseAndRenderText(blockContent)}
+            {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
           </h1>
         );
       case "heading_2":
         return (
           <h2 className="text-[22px] font-bold text-[#1a1a1a] mt-6 mb-2 tracking-tight leading-snug">
-            {parseAndRenderText(blockContent)}
+            {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
           </h2>
         );
       case "heading_3":
         return (
           <h3 className="text-[18px] font-semibold text-[#1a1a1a] mt-5 mb-2 tracking-tight leading-snug">
-            {parseAndRenderText(blockContent)}
+            {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
           </h3>
         );
       case "paragraph":
         return (
           <p className="text-base text-[#37352f] leading-relaxed mb-4 font-normal">
-            {parseAndRenderText(blockContent)}
+            {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
           </p>
         );
       case "bulleted_list_item":
         return (
           <div className="flex items-start gap-2.5 text-base text-[#37352f] mb-2 pl-1.5">
             <span className="text-[#a4a3a1] select-none text-[16px] leading-none mt-1">•</span>
-            <span className="leading-relaxed">{parseAndRenderText(blockContent)}</span>
+            <span className="leading-relaxed">
+              {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
+            </span>
           </div>
         );
       case "to_do":
@@ -232,21 +346,23 @@ export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: Bloc
               className="mt-1 h-4 w-4 rounded border-[#e3e2e0] text-[#2383e2] focus:ring-[#2383e2] cursor-not-allowed"
             />
             <span className={`leading-relaxed ${checked ? "line-through text-[#7c7b77]" : ""}`}>
-              {parseAndRenderText(blockContent)}
+              {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
             </span>
           </div>
         );
       case "quote":
         return (
           <blockquote className="pl-4 border-l-4 border-[#37352f] text-base italic text-[#6a6965] my-4 leading-relaxed font-normal">
-            {parseAndRenderText(blockContent)}
+            {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
           </blockquote>
         );
       case "callout":
         return (
           <div className="flex gap-3 p-4 bg-[#f7f7f5] border border-[#edece9] rounded-xl text-base text-[#37352f] my-4 leading-relaxed items-start">
             <Info className="w-5 h-5 text-[#7a7a78] mt-0.5 flex-shrink-0" />
-            <div>{parseAndRenderText(blockContent)}</div>
+            <div>
+              {richText ? <RichTextRenderer textArr={richText} /> : parseAndRenderText(blockContent)}
+            </div>
           </div>
         );
       case "code":
@@ -426,13 +542,79 @@ export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: Bloc
             )}
           </div>
         );
+      case "divider":
+        return <hr className="border-t border-[#edece9] my-5" />;
+      case "toggle":
+        return (
+          <details className="my-2 group">
+            <summary className="cursor-pointer text-base text-[#37352f] select-none hover:bg-neutral-50 px-2 py-1.5 rounded-lg leading-relaxed font-medium flex items-center gap-2">
+              <span className="text-neutral-400 group-open:rotate-90 transition-transform duration-100 select-none">▶</span>
+              {parseAndRenderText(content)}
+            </summary>
+            <div className="pl-6 text-[#37352f] text-sm italic py-2 border-l-2 border-[#edece9] ml-4 mt-1 bg-neutral-50/20 rounded-r-md">
+              (Toggle contents can be configured via page editing)
+            </div>
+          </details>
+        );
+      case "bookmark":
+        return (
+          <a
+            href={content}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-4 p-4 border border-[#edece9] rounded-xl hover:bg-[#f7f7f5]/30 transition-all my-4 text-[#37352f] shadow-[0_2px_8px_rgba(0,0,0,0.01)] hover:shadow-sm"
+          >
+            <div className="text-2xl p-2 bg-[#f7f7f5] rounded-lg">🔖</div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold truncate text-[#1e1e1e]">Bookmark Link</div>
+              <div className="text-xs text-neutral-400 truncate mt-0.5">{content}</div>
+              {block.caption && <div className="text-xs text-[#7c7b77] mt-1 italic">{block.caption}</div>}
+            </div>
+            <span className="text-neutral-300 text-sm">↗</span>
+          </a>
+        );
+      case "file":
+        const fileName = content.split("/").pop()?.split("?")[0] || "Attached File";
+        return (
+          <div className="flex items-center justify-between p-3.5 border border-[#edece9] rounded-xl bg-[#f7f7f5]/20 hover:bg-[#f7f7f5]/40 transition-colors my-3">
+            <div className="flex items-center gap-3 text-sm text-[#37352f] min-w-0">
+              <span className="text-xl">📁</span>
+              <span className="font-semibold truncate text-[#1e1e1e]">{decodeURIComponent(fileName)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {block.caption && <span className="text-xs text-neutral-400 truncate max-w-[150px] italic">{block.caption}</span>}
+              <a
+                href={content}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[#2383e2] hover:text-[#1c66b2] hover:underline font-bold px-3 py-1.5 bg-[#edece9]/40 hover:bg-[#edece9]/70 rounded-lg transition-colors flex-shrink-0"
+              >
+                Download
+              </a>
+            </div>
+          </div>
+        );
       default:
         return null;
     }
   };
 
   // Render routine
-  const isSpecial = ["table", "child_database", "button", "equation", "pdf", "embed", "image", "video"].includes(type);
+  const isSpecial = [
+    "table",
+    "child_database",
+    "button",
+    "equation",
+    "pdf",
+    "embed",
+    "image",
+    "video",
+    "divider",
+    "toggle",
+    "bookmark",
+    "file"
+  ].includes(type);
 
   if (pendingEdit) {
     if (pendingEdit.action === "delete") {
@@ -442,7 +624,7 @@ export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: Bloc
             <span>− Proposed deletion (Original Version)</span>
           </div>
           <div>
-            {isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content)}
+            {isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content, block.rich_text)}
           </div>
         </div>
       );
@@ -457,7 +639,7 @@ export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: Bloc
               <span>− Original Version (To be replaced)</span>
             </div>
             <div>
-              {isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content)}
+              {isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content, block.rich_text)}
             </div>
           </div>
 
@@ -476,5 +658,5 @@ export function BlockRenderer({ block, isMock, pendingEdit, pendingEdits }: Bloc
   }
 
   // Render normal blocks
-  return isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content);
+  return isSpecial ? renderSpecialBlock() : renderInnerBlock(type, content, block.rich_text);
 }

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Table, Plus, Search, Calendar, Tag, ChevronDown, Filter, X, ExternalLink, Info, FileCode, CornerDownLeft, FileText, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageIcon } from "./BlockRenderer";
 import { Latex } from "./Latex";
 import { CodeBlock } from "./CodeBlock";
 
@@ -179,13 +180,29 @@ export function InteractiveDatabase({
 
     return matchSearch && matchStatus;
   });
-
   const getColIcon = (colName: string) => {
     const nameLower = colName.toLowerCase();
-    if (nameLower.includes("name") || nameLower.includes("title") || nameLower.includes("subject")) return <Table className="w-3.5 h-3.5 text-neutral-400" />;
-    if (nameLower.includes("status")) return <Tag className="w-3.5 h-3.5 text-neutral-400" />;
-    if (nameLower.includes("date") || nameLower.includes("created")) return <Calendar className="w-3.5 h-3.5 text-neutral-400" />;
-    return <ChevronDown className="w-3.5 h-3.5 text-neutral-400" />;
+    if (nameLower.includes("name") || nameLower.includes("title") || nameLower.includes("subject")) {
+      return <span className="font-mono text-xs font-bold text-neutral-400 select-none mr-0.5">Aa</span>;
+    }
+    if (nameLower.includes("status")) {
+      return (
+        <svg className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0-1A6 6 0 1 0 8 2a6 6 0 0 0 0 12zM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5z"/>
+        </svg>
+      );
+    }
+    if (nameLower.includes("date") || nameLower.includes("created")) {
+      return <Calendar className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />;
+    }
+    // Default list icon for text properties like Pagina, Cosa
+    return (
+      <svg className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <line x1="3" y1="5" x2="13" y2="5" />
+        <line x1="3" y1="8" x2="13" y2="8" />
+        <line x1="3" y1="11" x2="13" y2="11" />
+      </svg>
+    );
   };
 
   const handleOpenRow = (row: DatabaseRow) => {
@@ -197,7 +214,7 @@ export function InteractiveDatabase({
   };
 
   return (
-    <div className="my-6 border border-[#edece9] rounded-xl overflow-hidden shadow-sm bg-white select-text relative">
+    <div className="my-6 select-text relative">
       {/* Database Controls Header */}
       <div className="px-4 py-3 bg-[#f7f7f5]/40 border-b border-[#edece9] flex flex-wrap items-center justify-between gap-3 select-none">
         <div className="flex items-center gap-2">
@@ -253,13 +270,16 @@ export function InteractiveDatabase({
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-[#edece9]">
           {/* Table Columns */}
-          <thead className="bg-[#f7f7f5]/40 select-none">
+          <thead className="bg-white select-none">
             <tr>
-              {columns.map((col) => (
+              {columns.map((col, idx) => (
                 <th
                   key={col}
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-semibold text-[#7a7a78] tracking-tight uppercase"
+                  className={cn(
+                    "px-3 py-2 text-left text-xs font-medium text-[#7c7b77] border-b border-[#edece9] select-none",
+                    idx < columns.length - 1 && "border-r border-[#edece9]"
+                  )}
                 >
                   <div className="flex items-center gap-1.5">
                     {getColIcon(col)}
@@ -267,7 +287,7 @@ export function InteractiveDatabase({
                   </div>
                 </th>
               ))}
-              <th scope="col" className="relative px-4 py-2 w-10">
+              <th scope="col" className="relative px-3 py-2 w-10 border-b border-[#edece9]">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
@@ -276,101 +296,143 @@ export function InteractiveDatabase({
           {/* Table Data */}
           <tbody className="bg-white divide-y divide-[#edece9]">
             {filteredRows.length > 0 ? (
-              filteredRows.map((row) => (
-                <tr key={row.id} className="hover:bg-[#f7f7f5]/20 group transition-colors">
-                  {columns.map((col, index) => {
-                    const value = row[col] || "";
-                    const isName = index === 0;
-                    
-                    let renderedValue = <span className="text-[#37352f] whitespace-normal break-words">{value}</span>;
+              <>
+                {filteredRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-[#f7f7f5]/20 group transition-colors">
+                    {columns.map((col, index) => {
+                      const value = row[col] || "";
+                      const isName = index === 0;
+                      
+                      let renderedValue = <span className="text-[#37352f] whitespace-normal break-words font-medium">{value}</span>;
 
-                    if (value && value.startsWith('{"type":')) {
-                      try {
-                        const parsed = JSON.parse(value);
-                        if (parsed.type === "multi_select" && parsed.tags) {
-                          renderedValue = (
-                            <div className="flex flex-wrap gap-1">
-                              {parsed.tags.map((tag: any) => (
-                                <span 
-                                  key={tag.name} 
-                                  className={cn(
-                                    "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                                    NOTION_TAG_COLORS[tag.color] || NOTION_TAG_COLORS.default
-                                  )}
-                                >
-                                  {tag.name}
-                                </span>
-                              ))}
-                            </div>
-                          );
-                        } else if (parsed.type === "select" && parsed.tag) {
-                          renderedValue = (
-                            <span 
-                              className={cn(
-                                "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                                NOTION_TAG_COLORS[parsed.tag.color] || NOTION_TAG_COLORS.default
-                              )}
-                            >
-                              {parsed.tag.name}
-                            </span>
-                          );
+                      if (value && value.startsWith('{"type":')) {
+                        try {
+                          const parsed = JSON.parse(value);
+                          if (parsed.type === "multi_select" && parsed.tags) {
+                            renderedValue = (
+                              <div className="flex flex-wrap gap-1">
+                                {parsed.tags.map((tag: any) => (
+                                  <span 
+                                    key={tag.name} 
+                                    className={cn(
+                                      "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+                                      NOTION_TAG_COLORS[tag.color] || NOTION_TAG_COLORS.default
+                                    )}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          } else if (parsed.type === "select" && parsed.tag) {
+                            renderedValue = (
+                              <span 
+                                className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+                                  NOTION_TAG_COLORS[parsed.tag.color] || NOTION_TAG_COLORS.default
+                                )}
+                              >
+                                {parsed.tag.name}
+                              </span>
+                            );
+                          }
+                        } catch (e) {
+                          // Keep string on parse error
                         }
-                      } catch (e) {
-                        // Keep string on parse error
+                      } else if (isName) {
+                        renderedValue = (
+                          <div className="flex items-center justify-between gap-3 w-full">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <PageIcon emoji={row._icon} className="w-4 h-4" />
+                              <button
+                                onClick={() => handleOpenRow(row)}
+                                className="font-semibold text-[#37352f] hover:text-[#2383e2] hover:underline text-left truncate cursor-pointer"
+                              >
+                                {value}
+                              </button>
+                              {row._comments && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-neutral-400 font-semibold font-sans ml-1">
+                                  💬{row._comments}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenRow(row);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1.5 px-2 py-0.5 bg-white hover:bg-[#edece9] text-[10px] text-[#37352f] rounded border border-[#e3e2e0] shadow-sm transition-all font-semibold cursor-pointer select-none flex-shrink-0"
+                            >
+                              Open
+                            </button>
+                          </div>
+                        );
+                      } else if (col.toLowerCase() === "status") {
+                        const statusVal = value.toLowerCase();
+                        const color = statusVal.includes("done") || statusVal.includes("finito") 
+                          ? "green" 
+                          : (statusVal.includes("progress") || statusVal.includes("working") ? "blue" : "gray");
+                        const colorClass = getNotionColorClasses(color);
+                        renderedValue = (
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-flex items-center gap-1",
+                            colorClass
+                          )}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            {value}
+                          </span>
+                        );
+                      } else if (col.toLowerCase() === "priority") {
+                        renderedValue = (
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-semibold border",
+                            PRIORITY_COLORS[value] || "bg-neutral-50 text-neutral-600 border-neutral-200/50"
+                          )}>
+                            {value}
+                          </span>
+                        );
                       }
-                    } else if (isName) {
-                      renderedValue = (
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold text-[#1a1a1a] whitespace-normal break-words">{value}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenRow(row);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex items-center gap-1.5 px-2 py-0.5 bg-white hover:bg-[#edece9] text-[10px] text-[#37352f] rounded border border-[#e3e2e0] shadow-sm transition-all font-semibold cursor-pointer select-none"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      );
-                    } else if (col.toLowerCase() === "status") {
-                      renderedValue = (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                          STATUS_COLORS[value] || "bg-neutral-50 text-neutral-600 border-neutral-200/50"
-                        )}>
-                          {value}
-                        </span>
-                      );
-                    } else if (col.toLowerCase() === "priority") {
-                      renderedValue = (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-semibold border",
-                          PRIORITY_COLORS[value] || "bg-neutral-50 text-neutral-600 border-neutral-200/50"
-                        )}>
-                          {value}
-                        </span>
-                      );
-                    }
 
-                    return (
-                      <td key={col} className="px-4 py-2.5 text-xs">
-                        {renderedValue}
-                      </td>
-                    );
-                  })}
-                  
-                  {/* Delete actions */}
-                  <td className="px-4 py-2.5 text-right w-10 select-none">
-                    <button
-                      onClick={() => handleDeleteRow(row.id)}
-                      className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs font-semibold transition-opacity px-1.5 py-0.5 hover:bg-red-50 rounded"
-                    >
-                      Delete
-                    </button>
+                      return (
+                        <td 
+                          key={col} 
+                          className={cn(
+                            "px-3 py-2 text-xs",
+                            index < columns.length - 1 && "border-r border-[#edece9]"
+                          )}
+                        >
+                          {renderedValue}
+                        </td>
+                      );
+                    })}
+                    
+                    {/* Delete actions */}
+                    <td className="px-3 py-2 text-right w-10 select-none">
+                      <button
+                        onClick={() => handleDeleteRow(row.id)}
+                        className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 text-xs font-semibold transition-opacity px-1.5 py-0.5 hover:bg-red-50 rounded select-none cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Bottom "+ New page" Notion-style trigger row */}
+                <tr 
+                  onClick={handleAddRow}
+                  className="hover:bg-[#f7f7f5]/30 cursor-pointer text-[#7c7b77] transition-colors border-t border-[#edece9]"
+                >
+                  <td 
+                    colSpan={columns.length + 1} 
+                    className="px-3 py-2 text-xs font-medium text-left flex items-center gap-1.5 select-none"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-neutral-400" />
+                    <span className="hover:text-[#37352f]">New page</span>
                   </td>
                 </tr>
-              ))
+              </>
             ) : (
               <tr>
                 <td colSpan={columns.length + 1} className="text-center py-10 px-4">
@@ -382,7 +444,29 @@ export function InteractiveDatabase({
           </tbody>
         </table>
       </div>
-
     </div>
   );
+}
+
+function getNotionColorClasses(color?: string): string {
+  switch (color) {
+    case "green":
+      return "bg-[#edf6f2] text-[#0f7b53] border-[#d2ebd9]";
+    case "blue":
+      return "bg-[#eef6fc] text-[#0969da] border-[#d1e7f9]";
+    case "red":
+      return "bg-[#fdf2f2] text-[#cf222e] border-[#fbd5d5]";
+    case "orange":
+      return "bg-[#fff9eb] text-[#b07000] border-[#fdecce]";
+    case "yellow":
+      return "bg-[#fcfbee] text-[#8f6b00] border-[#fbf3db]";
+    case "purple":
+      return "bg-[#fbf4fc] text-[#8250df] border-[#f3e2f9]";
+    case "pink":
+      return "bg-[#fdf4f7] text-[#bf3989] border-[#fbcce3]";
+    case "gray":
+      return "bg-[#f3f4f6] text-[#4b5563] border-[#e5e7eb]";
+    default:
+      return "bg-[#f3f4f6] text-[#37352f] border-[#e5e7eb]";
+  }
 }

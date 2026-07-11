@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NotionAI OSS Performance Monitor</title>
+  <!-- Google Fonts Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0b0a0f;
+      color: #e3e2e5;
+    }
+    .card-glow {
+      box-shadow: 0 0 25px rgba(92, 91, 212, 0.03);
+    }
+    .card-glow:hover {
+      box-shadow: 0 0 35px rgba(92, 91, 212, 0.08);
+      border-color: rgba(92, 91, 212, 0.3);
+    }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #111015;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2a2835;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3e3b50;
+    }
+  </style>
+</head>
+<body class="min-h-full flex flex-col font-sans antialiased">
+  <!-- Header Bar -->
+  <header class="border-b border-[#211f2d] bg-[#0e0d14]/80 backdrop-blur-md sticky top-0 z-50 px-8 py-4.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-7.5 h-7.5 rounded-lg bg-[#5c5bd4] flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(92,91,212,0.4)]">
+        📊
+      </div>
+      <div>
+        <h1 class="text-[17px] font-extrabold tracking-tight text-white">NotionAI OSS</h1>
+        <p class="text-[11px] text-[#868395] font-semibold uppercase tracking-wider">Performance Audit Monitor</p>
+      </div>
+    </div>
+
+    <!-- Active Mode Indicator -->
+    <div class="flex items-center gap-3">
+      <span id="session-status-badge" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-neutral-900 text-neutral-400 border border-neutral-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-neutral-500 animate-pulse"></span>
+        Checking Connection...
+      </span>
+      
+      <button 
+        onclick="checkSession()" 
+        class="text-xs font-semibold text-[#868395] hover:text-white border border-[#211f2d] hover:bg-[#191724] px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+      >
+        Refresh Connection
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Grid Content -->
+  <main class="flex-1 max-w-7xl mx-auto w-full px-6 md:px-8 py-8 flex flex-col gap-8">
+    
+    <!-- Controls Panel & Mode Banner -->
+    <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-6.5 flex flex-col md:flex-row gap-6 items-center justify-between">
+      <div class="space-y-1 md:max-w-xl">
+        <h2 class="text-lg font-bold text-white">API Latency benchmark suite</h2>
+        <p class="text-sm text-[#868395] leading-relaxed">
+          Test response durations for your search, workspace block parsing, and LLM text completion endpoints. Live tests run via session credentials. Simulates realistic network behaviors in mock mode.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 flex-wrap">
+        <button 
+          id="btn-single-test"
+          onclick="runSingleBenchmark()" 
+          class="inline-flex items-center gap-2 text-xs font-bold text-white bg-[#5c5bd4] hover:bg-[#4d4cbe] px-5 py-3 rounded-xl transition-all shadow-[0_4px_15px_rgba(92,91,212,0.15)] hover:shadow-[0_4px_20px_rgba(92,91,212,0.25)] hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+        >
+          <span>🚀</span> Run Single Test
+        </button>
+        <button 
+          id="btn-loop-test"
+          onclick="toggleLoopBenchmark()" 
+          class="inline-flex items-center gap-2 text-xs font-bold text-white bg-[#191724] hover:bg-[#252236] border border-[#2e2a42] px-5 py-3 rounded-xl transition-all cursor-pointer"
+        >
+          <span id="loop-btn-indicator">🔄</span> <span id="loop-btn-text">Loop Benchmark (10x)</span>
+        </button>
+        <button 
+          onclick="clearLogs()" 
+          class="text-xs font-semibold text-[#868395] hover:text-white border border-[#211f2d] hover:bg-red-950/20 hover:border-red-900 hover:text-red-300 px-3.5 py-3 rounded-xl transition-colors cursor-pointer"
+        >
+          Clear History
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI Metrics Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      
+      <!-- Average Latency KPI -->
+      <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-5.5 flex flex-col gap-1.5 relative overflow-hidden card-glow transition-all duration-300">
+        <span class="text-xs font-bold text-[#868395] uppercase tracking-wider">Average Latency</span>
+        <div class="flex items-baseline gap-1">
+          <span id="kpi-avg-latency" class="text-3xl font-extrabold text-white">0</span>
+          <span class="text-sm font-semibold text-[#868395]">ms</span>
+        </div>
+        <p class="text-[11px] text-[#868395] mt-1.5 border-t border-[#1b1926] pt-2">Overall average across all API runs</p>
+      </div>
+
+      <!-- Max Latency KPI -->
+      <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-5.5 flex flex-col gap-1.5 relative overflow-hidden card-glow transition-all duration-300">
+        <span class="text-xs font-bold text-[#868395] uppercase tracking-wider">Peak Latency</span>
+        <div class="flex items-baseline gap-1">
+          <span id="kpi-max-latency" class="text-3xl font-extrabold text-amber-400">0</span>
+          <span class="text-sm font-semibold text-[#868395]">ms</span>
+        </div>
+        <p class="text-[11px] text-[#868395] mt-1.5 border-t border-[#1b1926] pt-2">Maximum recorded response threshold</p>
+      </div>
+
+      <!-- Success Rate KPI -->
+      <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-5.5 flex flex-col gap-1.5 relative overflow-hidden card-glow transition-all duration-300">
+        <span class="text-xs font-bold text-[#868395] uppercase tracking-wider">Success Rate</span>
+        <div class="flex items-baseline gap-1">
+          <span id="kpi-success-rate" class="text-3xl font-extrabold text-emerald-400">100%</span>
+        </div>
+        <p class="text-[11px] text-[#868395] mt-1.5 border-t border-[#1b1926] pt-2">HTTP 200 OK queries percentage</p>
+      </div>
+
+      <!-- Total Requests KPI -->
+      <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-5.5 flex flex-col gap-1.5 relative overflow-hidden card-glow transition-all duration-300">
+        <span class="text-xs font-bold text-[#868395] uppercase tracking-wider">Total Runs</span>
+        <div class="flex items-baseline gap-1">
+          <span id="kpi-total-reqs" class="text-3xl font-extrabold text-indigo-400">0</span>
+        </div>
+        <p class="text-[11px] text-[#868395] mt-1.5 border-t border-[#1b1926] pt-2">Total endpoint requests tested</p>
+      </div>
+
+    </div>
+
+    <!-- Charts & Breakdown Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      
+      <!-- Latency Breakdown by Endpoint -->
+      <div class="lg:col-span-2 bg-[#12111a] border border-[#211f2d] rounded-2xl p-6.5 flex flex-col gap-5">
+        <div>
+          <h3 class="text-base font-bold text-white">Endpoint Performance Summary</h3>
+          <p class="text-xs text-[#868395] mt-0.5">Average and range duration per Notion workspace route</p>
+        </div>
+
+        <div class="flex flex-col gap-6 mt-2">
+          
+          <!-- Route 1: Search -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs font-semibold">
+              <span class="font-mono text-[#5c5bd4]">/api/search</span>
+              <span class="text-white"><span id="avg-search-text">0</span> ms <span class="text-[#868395] font-normal">(avg)</span></span>
+            </div>
+            <div class="w-full bg-[#1b1926] h-3 rounded-full overflow-hidden flex">
+              <div id="bar-search-avg" class="bg-[#5c5bd4] h-full transition-all duration-500 rounded-full" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-[#868395]">
+              <span>Min: <span id="min-search-text">0</span>ms</span>
+              <span>Max: <span id="max-search-text">0</span>ms</span>
+            </div>
+          </div>
+
+          <!-- Route 2: Blocks -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs font-semibold">
+              <span class="font-mono text-emerald-400">/api/blocks/[id]</span>
+              <span class="text-white"><span id="avg-blocks-text">0</span> ms <span class="text-[#868395] font-normal">(avg)</span></span>
+            </div>
+            <div class="w-full bg-[#1b1926] h-3 rounded-full overflow-hidden flex">
+              <div id="bar-blocks-avg" class="bg-emerald-400 h-full transition-all duration-500 rounded-full" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-[#868395]">
+              <span>Min: <span id="min-blocks-text">0</span>ms</span>
+              <span>Max: <span id="max-blocks-text">0</span>ms</span>
+            </div>
+          </div>
+
+          <!-- Route 3: AI Chat -->
+          <div class="space-y-2">
+            <div class="flex justify-between text-xs font-semibold">
+              <span class="font-mono text-amber-400">/api/ai/chat</span>
+              <span class="text-white"><span id="avg-ai-text">0</span> ms <span class="text-[#868395] font-normal">(avg)</span></span>
+            </div>
+            <div class="w-full bg-[#1b1926] h-3 rounded-full overflow-hidden flex">
+              <div id="bar-ai-avg" class="bg-amber-400 h-full transition-all duration-500 rounded-full" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-[#868395]">
+              <span>Min: <span id="min-ai-text">0</span>ms</span>
+              <span>Max: <span id="max-ai-text">0</span>ms</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Real-Time Timeline Scatter -->
+      <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl p-6.5 flex flex-col gap-4">
+        <div>
+          <h3 class="text-base font-bold text-white">Execution Timeline</h3>
+          <p class="text-xs text-[#868395] mt-0.5">Sequential query timeline scatter map</p>
+        </div>
+
+        <div class="flex-1 min-h-[220px] bg-[#0c0b11] border border-[#1b1926] rounded-xl relative p-4 flex flex-col justify-between">
+          
+          <!-- Timeline SVG Graph wrapper -->
+          <svg id="timeline-svg" class="absolute inset-0 w-full h-full p-6" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <!-- Grid Lines -->
+            <line x1="0" y1="25" x2="100" y2="25" stroke="#1d1b28" stroke-width="0.5" stroke-dasharray="2" />
+            <line x1="0" y1="50" x2="100" y2="50" stroke="#1d1b28" stroke-width="0.5" stroke-dasharray="2" />
+            <line x1="0" y1="75" x2="100" y2="75" stroke="#1d1b28" stroke-width="0.5" stroke-dasharray="2" />
+            
+            <!-- Nodes will be inserted dynamically here -->
+            <g id="svg-nodes"></g>
+            <polyline id="svg-line" fill="none" stroke="rgba(92,91,212,0.3)" stroke-width="0.5" points="" />
+          </svg>
+
+          <!-- Graph Labels -->
+          <div class="text-[9px] text-[#868395] font-semibold self-end select-none z-10 space-y-11">
+            <div>3000ms</div>
+            <div>1500ms</div>
+            <div>750ms</div>
+            <div>0ms</div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-[9px] text-[#868395] px-1 select-none">
+          <span>Oldest Runs</span>
+          <span>Latest Runs</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Benchmark Log Table -->
+    <div class="bg-[#12111a] border border-[#211f2d] rounded-2xl overflow-hidden flex flex-col">
+      <div class="px-6.5 py-5 border-b border-[#211f2d]">
+        <h3 class="text-base font-bold text-white">Detailed Run Logs</h3>
+        <p class="text-xs text-[#868395] mt-0.5">Chronological list of executed query records</p>
+      </div>
+
+      <div class="overflow-x-auto max-h-[350px]">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-[#0e0d14] text-[10px] font-bold text-[#868395] uppercase tracking-wider border-b border-[#1b1926]">
+              <th class="px-6.5 py-3">Timestamp</th>
+              <th class="px-6.5 py-3">Endpoint Route</th>
+              <th class="px-6.5 py-3">Method</th>
+              <th class="px-6.5 py-3">Status</th>
+              <th class="px-6.5 py-3 text-right">Latency</th>
+            </tr>
+          </thead>
+          <tbody id="log-table-body" class="divide-y divide-[#1b1926] text-xs">
+            <tr>
+              <td colspan="5" class="px-6.5 py-8 text-center text-[#868395] font-semibold">
+                No logs recorded yet. Click "Run Single Test" to start.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-[#211f2d] bg-[#0c0b11] py-5 text-center text-[11px] text-[#868395] select-none mt-auto">
+    NotionAI OSS Benchmark Tool • MIT License • Local Session Audit Page
+  </footer>
+
+  <!-- Script Logic -->
+  <script>
+    let isMock = true;
+    let availablePages = [];
+    let logs = [];
+    let isLooping = false;
+    let loopCountRemaining = 0;
+
+    // Initialize connection verification
+    document.addEventListener("DOMContentLoaded", () => {
+      checkSession();
+    });
+
+    async function checkSession() {
+      const badge = document.getElementById("session-status-badge");
+      badge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-950/40 text-indigo-300 border border-indigo-900";
+      badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span> Testing Connection...`;
+
+      try {
+        const res = await fetch("/api/search", { cache: "no-store" });
+        if (res.status === 401) {
+          setMode(true, "Mock Simulator Mode (Not Authenticated)");
+        } else if (res.ok) {
+          const data = await res.json();
+          availablePages = data.pages || [];
+          setMode(false, "Connected to Notion Workspace (Live)");
+        } else {
+          setMode(true, "Mock Simulator Mode (Search Error)");
+        }
+      } catch (err) {
+        setMode(true, "Mock Simulator Mode (Offline)");
+      }
+    }
+
+    function setMode(mockActive, text) {
+      isMock = mockActive;
+      const badge = document.getElementById("session-status-badge");
+      if (isMock) {
+        badge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/40 text-amber-300 border border-amber-900";
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> ${text}`;
+      } else {
+        badge.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/40 text-emerald-300 border border-emerald-900";
+        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ${text}`;
+      }
+    }
+
+    // Benchmark runners
+    async function runSingleBenchmark() {
+      if (isLooping) return; // ignore duplicate clicks
+      
+      const endpoints = ["search", "blocks", "chat"];
+      // Randomly pick one or run them sequentially? Let's run all three in sequence for a complete cycle!
+      await executeBenchmarkCycle();
+    }
+
+    async function toggleLoopBenchmark() {
+      if (isLooping) {
+        // Stop looping
+        isLooping = false;
+        loopCountRemaining = 0;
+        updateLoopButtonState();
+        return;
+      }
+
+      isLooping = true;
+      loopCountRemaining = 10;
+      updateLoopButtonState();
+      
+      // Run loop asynchronously
+      runLoopHandler();
+    }
+
+    async function runLoopHandler() {
+      while (isLooping && loopCountRemaining > 0) {
+        document.getElementById("loop-btn-text").textContent = `Loop Active (${loopCountRemaining} left)`;
+        await executeBenchmarkCycle();
+        loopCountRemaining--;
+        // Pause 300ms between loops to prevent throttling
+        await new Promise(r => setTimeout(r, 400));
+      }
+      isLooping = false;
+      updateLoopButtonState();
+    }
+
+    function updateLoopButtonState() {
+      const btn = document.getElementById("btn-loop-test");
+      const text = document.getElementById("loop-btn-text");
+      const indicator = document.getElementById("loop-btn-indicator");
+
+      if (isLooping) {
+        btn.className = "inline-flex items-center gap-2 text-xs font-bold text-white bg-amber-950/40 border border-amber-900 px-5 py-3 rounded-xl transition-all cursor-pointer";
+        indicator.textContent = "⏳";
+        text.textContent = "Stopping loop...";
+      } else {
+        btn.className = "inline-flex items-center gap-2 text-xs font-bold text-white bg-[#191724] hover:bg-[#252236] border border-[#2e2a42] px-5 py-3 rounded-xl transition-all cursor-pointer";
+        indicator.textContent = "🔄";
+        text.textContent = "Loop Benchmark (10x)";
+      }
+    }
+
+    async function executeBenchmarkCycle() {
+      // 1. Search API
+      await measureRequest("/api/search", "GET", async () => {
+        if (isMock) {
+          await delay(randRange(100, 240));
+          if (Math.random() < 0.02) throw new Error("Connection reset");
+          return { ok: true, status: 200 };
+        } else {
+          return await fetch("/api/search?query=audit", { cache: "no-store" });
+        }
+      }, "search");
+
+      // 2. Blocks API
+      let targetPageId = "mock-id-123456";
+      if (!isMock && availablePages.length > 0) {
+        targetPageId = availablePages[Math.floor(Math.random() * availablePages.length)].id;
+      }
+      await measureRequest(`/api/blocks/${targetPageId}`, "GET", async () => {
+        if (isMock) {
+          await delay(randRange(150, 480));
+          if (Math.random() < 0.02) throw new Error("Timeout loading Notion blocks");
+          return { ok: true, status: 200 };
+        } else {
+          return await fetch(`/api/blocks/${targetPageId}`, { cache: "no-store" });
+        }
+      }, "blocks");
+
+      // 3. AI Chat (JSON Reasoning Loop API)
+      await measureRequest("/api/ai/chat", "POST", async () => {
+        if (isMock) {
+          await delay(randRange(900, 2800));
+          if (Math.random() < 0.03) throw new Error("OpenRouter Rate Limit Exceeded");
+          return { ok: true, status: 200 };
+        } else {
+          return await fetch("/api/ai/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messages: [{ role: "user", content: "Measure latency test request. Keep it simple." }],
+              stream: false
+            }),
+            cache: "no-store"
+          });
+        }
+      }, "chat");
+    }
+
+    async function measureRequest(endpoint, method, action, category) {
+      const startTime = performance.now();
+      let status = 200;
+      let ok = true;
+      let errorText = "";
+
+      try {
+        const res = await action();
+        const endTime = performance.now();
+        status = res.status;
+        ok = res.ok;
+      } catch (err) {
+        ok = false;
+        status = 500;
+        errorText = err.message || "Network Error";
+      }
+
+      const endTime = performance.now();
+      const latency = Math.round(endTime - startTime);
+
+      const record = {
+        timestamp: new Date().toLocaleTimeString(),
+        endpoint: truncateString(endpoint, 32),
+        method,
+        status,
+        ok,
+        latency,
+        category,
+        errorText
+      };
+
+      logs.push(record);
+      updateDashboard();
+    }
+
+    // Dashboard calculations
+    function updateDashboard() {
+      if (logs.length === 0) return;
+
+      // KPIs
+      const avgLatency = Math.round(logs.reduce((sum, r) => sum + r.latency, 0) / logs.length);
+      const maxLatency = Math.max(...logs.map(r => r.latency));
+      const successCount = logs.filter(r => r.ok).length;
+      const successRate = Math.round((successCount / logs.length) * 100);
+
+      document.getElementById("kpi-avg-latency").textContent = avgLatency;
+      document.getElementById("kpi-max-latency").textContent = maxLatency;
+      document.getElementById("kpi-success-rate").textContent = `${successRate}%`;
+      document.getElementById("kpi-total-reqs").textContent = logs.length;
+
+      // Success Rate KPI text color change
+      const successEl = document.getElementById("kpi-success-rate");
+      if (successRate >= 95) {
+        successEl.className = "text-3xl font-extrabold text-emerald-400";
+      } else if (successRate >= 80) {
+        successEl.className = "text-3xl font-extrabold text-amber-400";
+      } else {
+        successEl.className = "text-3xl font-extrabold text-red-500";
+      }
+
+      // Endpoint category breakdowns
+      const categories = ["search", "blocks", "chat"];
+      categories.forEach(cat => {
+        const catLogs = logs.filter(r => r.category === cat);
+        if (catLogs.length > 0) {
+          const avg = Math.round(catLogs.reduce((sum, r) => sum + r.latency, 0) / catLogs.length);
+          const min = Math.min(...catLogs.map(r => r.latency));
+          const max = Math.max(...catLogs.map(r => r.latency));
+          
+          document.getElementById(`avg-${cat}-text`).textContent = avg;
+          document.getElementById(`min-${cat}-text`).textContent = min;
+          document.getElementById(`max-${cat}-text`).textContent = max;
+
+          // Set bar width (relative to max benchmark limit 3000ms)
+          const pct = Math.min(100, Math.round((avg / 3000) * 100));
+          document.getElementById(`bar-${cat}-avg`).style.width = `${pct}%`;
+        }
+      });
+
+      // Update Timeline Graphic
+      renderTimelineGraph();
+
+      // Update Log Table
+      renderLogTable();
+    }
+
+    function renderTimelineGraph() {
+      const svgNodes = document.getElementById("svg-nodes");
+      const svgLine = document.getElementById("svg-line");
+      svgNodes.innerHTML = "";
+      
+      const maxLimit = 3000;
+      const count = logs.length;
+      if (count === 0) return;
+
+      // Display up to 15 nodes in the window
+      const displayedLogs = logs.slice(-15);
+      const points = [];
+
+      displayedLogs.forEach((log, idx) => {
+        const x = count <= 15 
+          ? (idx / Math.max(1, count - 1)) * 100
+          : (idx / 14) * 100;
+        
+        // inverse Y position because 0 is at top in SVG coordinates
+        const y = 100 - Math.min(95, Math.max(5, Math.round((log.latency / maxLimit) * 100)));
+        
+        points.push(`${x},${y}`);
+
+        // Define node color
+        let color = "#5c5bd4"; // search
+        if (log.category === "blocks") color = "#10b981"; // blocks
+        if (log.category === "chat") color = "#f59e0b"; // chat
+        if (!log.ok) color = "#ef4444"; // error
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        circle.setAttribute("r", log.ok ? "3" : "4.5");
+        circle.setAttribute("fill", color);
+        circle.setAttribute("stroke", "#0b0a0f");
+        circle.setAttribute("stroke-width", "0.8");
+        
+        // tooltip element title
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = `${log.endpoint}\nLatency: ${log.latency}ms\nStatus: ${log.status}`;
+        circle.appendChild(title);
+
+        svgNodes.appendChild(circle);
+      });
+
+      svgLine.setAttribute("points", points.join(" "));
+    }
+
+    function renderLogTable() {
+      const body = document.getElementById("log-table-body");
+      if (logs.length === 0) return;
+
+      // Render logs in reverse order (newest first)
+      const reversedLogs = [...logs].reverse();
+      
+      body.innerHTML = reversedLogs.map((log) => {
+        const statusColor = log.ok 
+          ? "bg-emerald-950/40 text-emerald-300 border-emerald-900/60" 
+          : "bg-red-950/40 text-red-300 border-red-900/60";
+        
+        const statusText = log.ok ? "200 OK" : `Fail (${log.status})`;
+        const errorDesc = log.errorText ? `<div class="text-[10px] text-red-400/80 font-mono mt-0.5">${log.errorText}</div>` : "";
+
+        return `
+          <tr class="hover:bg-[#151421]/30 transition-colors">
+            <td class="px-6.5 py-3.5 text-[#868395] font-medium">${log.timestamp}</td>
+            <td class="px-6.5 py-3.5 font-mono font-semibold text-white truncate max-w-[250px]" title="${log.endpoint}">
+              ${log.endpoint}
+              ${errorDesc}
+            </td>
+            <td class="px-6.5 py-3.5 text-[#868395] font-semibold">${log.method}</td>
+            <td class="px-6.5 py-3.5">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${statusColor}">
+                ${statusText}
+              </span>
+            </td>
+            <td class="px-6.5 py-3.5 text-right font-mono font-bold text-white">${log.latency} ms</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function clearLogs() {
+      logs = [];
+      const body = document.getElementById("log-table-body");
+      body.innerHTML = `
+        <tr>
+          <td colspan="5" class="px-6.5 py-8 text-center text-[#868395] font-semibold">
+            No logs recorded yet. Click "Run Single Test" to start.
+          </td>
+        </tr>
+      `;
+      document.getElementById("kpi-avg-latency").textContent = "0";
+      document.getElementById("kpi-max-latency").textContent = "0";
+      document.getElementById("kpi-success-rate").textContent = "100%";
+      document.getElementById("kpi-total-reqs").textContent = "0";
+      
+      const categories = ["search", "blocks", "chat"];
+      categories.forEach(cat => {
+        document.getElementById(`avg-${cat}-text`).textContent = "0";
+        document.getElementById(`min-${cat}-text`).textContent = "0";
+        document.getElementById(`max-${cat}-text`).textContent = "0";
+        document.getElementById(`bar-${cat}-avg`).style.width = "0%";
+      });
+
+      document.getElementById("svg-nodes").innerHTML = "";
+      document.getElementById("svg-line").setAttribute("points", "");
+    }
+
+    // Helper functions
+    function randRange(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function truncateString(str, num) {
+      if (str.length <= num) return str;
+      return str.slice(0, num) + "...";
+    }
+  </script>
+</body>
+</html>

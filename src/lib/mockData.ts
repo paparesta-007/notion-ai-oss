@@ -8,6 +8,20 @@ export const MOCK_PAGES = [
     created: "2 days ago",
     last_edited: "2 hours ago",
     emoji: "💡",
+    properties: {
+      "Status": {
+        type: "status",
+        status: { name: "In Progress", color: "blue" }
+      },
+      "Priority": {
+        type: "select",
+        select: { name: "High", color: "red" }
+      },
+      "Cosa?": {
+        type: "rich_text",
+        rich_text: [{ plain_text: "AI Integration Design Specifications" }]
+      }
+    }
   },
   {
     id: "mock-2",
@@ -16,6 +30,16 @@ export const MOCK_PAGES = [
     created: "1 week ago",
     last_edited: "Yesterday",
     emoji: "🚀",
+    properties: {
+      "Status": {
+        type: "status",
+        status: { name: "Done", color: "green" }
+      },
+      "Launch Date": {
+        type: "date",
+        date: { start: "2026-09-01" }
+      }
+    }
   },
   {
     id: "mock-3",
@@ -84,9 +108,9 @@ export const MOCK_PAGE_CONTENTS: Record<string, { title: string; emoji: string |
         database_title: "Project Roadmap Tasks",
         database_columns: ["Name", "Status", "Created Date", "Priority"],
         database_rows: [
-          { Name: "Review OAuth 2.0 Security Gateway", Status: "Done", "Created Date": "10/9/2024", Priority: "High" },
-          { Name: "Deploy Server-Side Cache Layer", Status: "In Progress", "Created Date": "2/6/2026", Priority: "Medium" },
-          { Name: "Write Client Integration Tests", Status: "Todo", "Created Date": "2/10/2026", Priority: "Low" },
+          { Name: "Review OAuth 2.0 Security Gateway", Status: "Done", "Created Date": "10/9/2024", Priority: "High", _icon: "👤", _comments: "1" },
+          { Name: "Deploy Server-Side Cache Layer", Status: "In Progress", "Created Date": "2/6/2026", Priority: "Medium", _icon: "📗" },
+          { Name: "Write Client Integration Tests", Status: "Todo", "Created Date": "2/10/2026", Priority: "Low", _icon: "📙", _comments: "3" },
         ]
       }
     ]

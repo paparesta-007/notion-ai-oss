@@ -7,6 +7,9 @@ export function middleware(request: NextRequest) {
   // Define public paths that don't require authentication
   const isPublicPath = 
     pathname === "/login" ||
+    pathname === "/landing" ||
+    pathname === "/tutorial" ||
+    pathname.startsWith("/tutorial/") ||
     pathname.startsWith("/api/auth/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico" ||
@@ -14,10 +17,10 @@ export function middleware(request: NextRequest) {
     
   const hasSession = request.cookies.has("notion_session");
   
-  // If no session and trying to access a protected page, redirect to login
+  // If no session and trying to access a protected page, redirect to landing
   if (!hasSession && !isPublicPath) {
-    const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    const landingUrl = new URL("/landing", request.url);
+    return NextResponse.redirect(landingUrl);
   }
   
   // If session exists and trying to access login, redirect to home

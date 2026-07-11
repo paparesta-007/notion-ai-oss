@@ -23,6 +23,7 @@ export function PageBlocksContainer({ initialBlocks, isMock, pageId }: PageBlock
   const [peekTitle, setPeekTitle] = useState<string>("");
   const [peekHistory, setPeekHistory] = useState<{ id: string; title: string }[]>([]);
   const [peekBlocks, setPeekBlocks] = useState<any[]>([]);
+  const [peekProperties, setPeekProperties] = useState<any>({});
   const [peekLoading, setPeekLoading] = useState(false);
   const [peekError, setPeekError] = useState<string | null>(null);
 
@@ -110,6 +111,7 @@ export function PageBlocksContainer({ initialBlocks, isMock, pageId }: PageBlock
   useEffect(() => {
     if (!peekPageId) {
       setPeekBlocks([]);
+      setPeekProperties({});
       return;
     }
 
@@ -123,6 +125,7 @@ export function PageBlocksContainer({ initialBlocks, isMock, pageId }: PageBlock
         }
         const data = await response.json();
         setPeekBlocks(data.blocks || []);
+        setPeekProperties(data.properties || {});
       } catch (err: any) {
         console.error("Error fetching page blocks:", err);
         setPeekError(err.message || "Failed to load page content.");
@@ -313,13 +316,97 @@ export function PageBlocksContainer({ initialBlocks, isMock, pageId }: PageBlock
               {/* Page Properties */}
               <div className="mb-8 border border-[#edece9] rounded-xl p-4 bg-[#f7f7f5]/40 text-xs text-[#37352f]">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-[#7a7a78] mb-3 select-none">Properties</div>
-                <div className="grid grid-cols-[100px_1fr] gap-y-3.5 items-center">
+                <div className="grid grid-cols-[120px_1fr] gap-y-3.5 items-center">
                   <div className="text-[#7c7b77] select-none font-semibold flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-neutral-400" /> Page ID
                   </div>
                   <div className="font-mono text-[11px] bg-[#edece9]/50 px-2 py-0.5 rounded border border-[#edece9] w-max select-all truncate max-w-full">
                     {peekPageId}
                   </div>
+
+                  {peekProperties && Object.entries(peekProperties).map(([propName, prop]: [string, any]) => {
+                    if (prop.type === "title") return null;
+
+                    let renderedValue: React.ReactNode = null;
+                    let icon = "📝"; 
+
+                    if (prop.type === "rich_text" && prop.rich_text) {
+                      const text = prop.rich_text.map((t: any) => t.plain_text).join("");
+                      if (text) renderedValue = <span className="text-[#37352f] font-medium">{text}</span>;
+                      icon = "💬";
+                    } else if (prop.type === "select" && prop.select) {
+                      const colorClass = getNotionColorClasses(prop.select.color);
+                      renderedValue = (
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", colorClass)}>
+                          {prop.select.name}
+                        </span>
+                      );
+                      icon = "☀️";
+                    } else if (prop.type === "multi_select" && prop.multi_select) {
+                      renderedValue = (
+                        <div className="flex flex-wrap gap-1">
+                          {prop.multi_select.map((s: any, idx: number) => {
+                            const colorClass = getNotionColorClasses(s.color);
+                            return (
+                              <span key={idx} className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", colorClass)}>
+                                {s.name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      );
+                      icon = "🏷️";
+                    } else if (prop.type === "status" && prop.status) {
+                      const colorClass = getNotionColorClasses(prop.status.color);
+                      renderedValue = (
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-flex items-center gap-1", colorClass)}>
+                          <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                          {prop.status.name}
+                        </span>
+                      );
+                      icon = "⚙️";
+                    } else if (prop.type === "number" && prop.number !== undefined && prop.number !== null) {
+                      renderedValue = <span className="font-mono text-[#37352f] font-medium">{prop.number}</span>;
+                      icon = "🔢";
+                    } else if (prop.type === "checkbox") {
+                      renderedValue = (
+                        <input 
+                          type="checkbox" 
+                          checked={!!prop.checkbox} 
+                          readOnly 
+                          className="h-3.5 w-3.5 rounded border-[#e3e2e0] text-[#2383e2] focus:ring-[#2383e2] cursor-not-allowed" 
+                        />
+                      );
+                      icon = "☑️";
+                    } else if (prop.type === "url" && prop.url) {
+                      renderedValue = <a href={prop.url} target="_blank" rel="noopener noreferrer" className="text-[#2383e2] hover:underline truncate max-w-[200px] block">{prop.url}</a>;
+                      icon = "🔗";
+                    } else if (prop.type === "email" && prop.email) {
+                      renderedValue = <a href={`mailto:${prop.email}`} className="text-[#2383e2] hover:underline">{prop.email}</a>;
+                      icon = "📧";
+                    } else if (prop.type === "phone_number" && prop.phone_number) {
+                      renderedValue = <span className="text-[#37352f] font-medium">{prop.phone_number}</span>;
+                      icon = "📞";
+                    } else if (prop.type === "date" && prop.date) {
+                      const dateText = prop.date.start + (prop.date.end ? ` to ${prop.date.end}` : "");
+                      renderedValue = <span className="text-[#37352f] font-medium">{dateText}</span>;
+                      icon = "📅";
+                    }
+
+                    if (!renderedValue) return null;
+
+                    return (
+                      <React.Fragment key={propName}>
+                        <div className="text-[#7c7b77] select-none font-semibold flex items-center gap-1.5">
+                          <span className="text-xs">{icon}</span>
+                          <span>{propName}</span>
+                        </div>
+                        <div className="flex items-center">
+                          {renderedValue}
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -376,4 +463,27 @@ export function PageBlocksContainer({ initialBlocks, isMock, pageId }: PageBlock
       `}</style>
     </div>
   );
+}
+
+function getNotionColorClasses(color?: string): string {
+  switch (color) {
+    case "green":
+      return "bg-[#edf6f2] text-[#0f7b53] border-[#d2ebd9]";
+    case "blue":
+      return "bg-[#eef6fc] text-[#0969da] border-[#d1e7f9]";
+    case "red":
+      return "bg-[#fdf2f2] text-[#cf222e] border-[#fbd5d5]";
+    case "orange":
+      return "bg-[#fff9eb] text-[#b07000] border-[#fdecce]";
+    case "yellow":
+      return "bg-[#fcfbee] text-[#8f6b00] border-[#fbf3db]";
+    case "purple":
+      return "bg-[#fbf4fc] text-[#8250df] border-[#f3e2f9]";
+    case "pink":
+      return "bg-[#fdf4f7] text-[#bf3989] border-[#fbcce3]";
+    case "gray":
+      return "bg-[#f3f4f6] text-[#4b5563] border-[#e5e7eb]";
+    default:
+      return "bg-[#f3f4f6] text-[#37352f] border-[#e5e7eb]";
+  }
 }

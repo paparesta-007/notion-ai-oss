@@ -13,6 +13,7 @@ export interface Block {
   button_text?: string;
   button_icon?: string;
   caption?: string;
+  rich_text?: any[];
 }
 
 export interface Page {
@@ -22,4 +23,7 @@ export interface Page {
   created: string;
   last_edited: string;
   emoji: string | null;
+  parentId?: string;
+  isDatabase?: boolean;
+  cover?: string | null;
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getCached, setCached } from "@/lib/cache";
+import { MOCK_PAGES } from "@/lib/mockData";
 
 export async function GET(
   request: NextRequest,
@@ -16,12 +17,18 @@ export async function GET(
   const cacheKey = `api-blocks:${blockId}`;
   const cached = getCached<any>(cacheKey);
   if (cached) {
+    if (cached && typeof cached === "object" && "blocks" in cached) {
+      return NextResponse.json(cached);
+    }
     return NextResponse.json({ blocks: cached });
   }
 
   // If mock session, return sample mock children blocks based on mock database page items
   if (session.isMock) {
+    const page = MOCK_PAGES.find((p) => p.id === blockId);
+    const properties = page?.properties || {};
     return NextResponse.json({
+      properties,
       blocks: [
         { type: "heading_1", content: "📖 Class Notes Overview" },
         { type: "paragraph", content: "This is a detailed page containing study guides, homework assignments, and practice code exercises." },
@@ -38,14 +45,39 @@ export async function GET(
   }
 
   try {
-    const res = await fetch(`https://api.notion.com/v1/blocks/${blockId}/children`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        "Notion-Version": "2022-06-28",
-      },
-      cache: "no-store",
-    });
+    const [childrenRes, pageRes] = await Promise.allSettled([
+      fetch(`https://api.notion.com/v1/blocks/${blockId}/children`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Notion-Version": "2022-06-28",
+        },
+        cache: "no-store",
+      }),
+      fetch(`https://api.notion.com/v1/pages/${blockId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Notion-Version": "2022-06-28",
+        },
+        cache: "no-store",
+      })
+    ]);
+
+    let properties = {};
+    if (pageRes.status === "fulfilled" && pageRes.value.ok) {
+      const pageData = await pageRes.value.json();
+      properties = pageData.properties || {};
+    }
+
+    if (childrenRes.status === "rejected" || !childrenRes.value.ok) {
+      return NextResponse.json({
+        properties,
+        blocks: []
+      });
+    }
+
+    const res = childrenRes.value;
 
     if (!res.ok) {
       return NextResponse.json(
@@ -61,9 +93,11 @@ export async function GET(
         let content = "";
         let checked = false;
         let language = "typescript";
+        let richText: any[] | undefined = undefined;
 
         if (block[type]?.rich_text) {
           content = block[type].rich_text.map((t: any) => t.plain_text).join("");
+          richText = block[type].rich_text;
         }
 
         if (type === "to_do") {
@@ -208,17 +242,80 @@ export async function GET(
           };
         }
 
+        // Support pdf
+        if (type === "pdf" && block.pdf) {
+          const pdfType = block.pdf.type;
+          const src = pdfType === "external" ? block.pdf.external?.url : block.pdf.file?.url;
+          const caption = block.pdf.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: src || "",
+            caption,
+          };
+        }
+
+        // Support embed
+        if (type === "embed" && block.embed) {
+          const caption = block.embed.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: block.embed.url || "",
+            caption,
+          };
+        }
+
+        // Support bookmark
+        if (type === "bookmark" && block.bookmark) {
+          const caption = block.bookmark.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: block.bookmark.url || "",
+            caption,
+          };
+        }
+
+        // Support file
+        if (type === "file" && block.file) {
+          const fileType = block.file.type;
+          const src = fileType === "external" ? block.file.external?.url : block.file.file?.url;
+          const caption = block.file.caption?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type,
+            content: src || "",
+            caption,
+          };
+        }
+
+        // Support divider
+        if (type === "divider") {
+          return {
+            type: "divider",
+            content: "",
+          };
+        }
+
+        // Support toggle
+        if (type === "toggle" && block.toggle) {
+          const toggleContent = block.toggle.rich_text?.map((t: any) => t.plain_text).join("") || "";
+          return {
+            type: "toggle",
+            content: toggleContent,
+          };
+        }
+
         return {
           type,
           content,
           checked,
           language,
+          rich_text: richText,
         };
       })
     );
 
-    setCached(cacheKey, blocks, 10000); // cache blocks list for 10 seconds
-    return NextResponse.json({ blocks });
+    const result = { blocks, properties };
+    setCached(cacheKey, result, 10000); // cache blocks list and properties for 10 seconds
+    return NextResponse.json(result);
   } catch (error: any) {
     console.error("Error fetching dynamic blocks:", error);
     return NextResponse.json(

@@ -60,8 +60,9 @@ export async function GET(request: NextRequest) {
 
     const data = await res.json();
     const pages = data.results.map((page: any) => {
-      const titleProp = page.properties?.title || page.properties?.Name || page.properties?.name;
-      const titleArray = titleProp?.title || titleProp?.rich_text;
+      const titleKey = page.properties ? Object.keys(page.properties).find(k => page.properties[k]?.type === "title") : null;
+      const titleProp = titleKey ? page.properties[titleKey] : null;
+      const titleArray = titleProp?.title;
       const title =
         titleArray && titleArray.length > 0
           ? titleArray.map((t: any) => t.plain_text).join("")
@@ -76,6 +77,19 @@ export async function GET(request: NextRequest) {
         icon = page.icon.file.url;
       }
 
+      let cover = null;
+      if (page.cover?.type === "external") {
+        cover = page.cover.external.url;
+      } else if (page.cover?.type === "file") {
+        cover = page.cover.file.url;
+      }
+
+      const parentId = page.parent?.type === "page_id" 
+        ? page.parent.page_id 
+        : page.parent?.type === "database_id"
+        ? page.parent.database_id
+        : undefined;
+
       return {
         id: page.id,
         title,
@@ -83,6 +97,9 @@ export async function GET(request: NextRequest) {
         created: new Date(page.created_time).toLocaleDateString(),
         last_edited: new Date(page.last_edited_time).toLocaleDateString(),
         emoji: icon,
+        parentId,
+        isDatabase: page.object === "database",
+        cover,
       };
     });
 
