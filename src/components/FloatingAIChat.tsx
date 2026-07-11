@@ -109,7 +109,7 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
 
           // Dispatch pending edits event so PageBlocksContainer can show the diff preview on the main page content!
           window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
-            detail: { edits: data.instructions, pageId: selectedPageId }
+            detail: { edits: data.instructions, pageId: selectedPageId, messageId: aiResponse.id }
           }));
         } else {
           const aiResponse: Message = {
@@ -158,7 +158,7 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
 
         // Clear pending edits preview on main page
         window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
-          detail: { edits: null, pageId: null }
+          detail: { edits: null, pageId: null, messageId: null }
         }));
 
         // Add confirmation message
@@ -198,7 +198,7 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
 
     // Clear pending edits preview on main page
     window.dispatchEvent(new CustomEvent("notion-ai:pending-edits", {
-      detail: { edits: null, pageId: null }
+      detail: { edits: null, pageId: null, messageId: null }
     }));
 
     const discardMsg: Message = {
@@ -215,6 +215,33 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
   };
 
   const isIdle = messages.length === 0;
+
+  // Sync isApplying state changes to the page blocks container
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("notion-ai:applying-state", {
+      detail: { isApplying }
+    }));
+  }, [isApplying]);
+
+  // Listen for actions triggered from PageBlocksContainer
+  useEffect(() => {
+    const handleActionApply = (event: Event) => {
+      const customEvent = event as CustomEvent<{ messageId: string; edits: BlockEdit[] }>;
+      handleApplyEdits(customEvent.detail.messageId, customEvent.detail.edits);
+    };
+
+    const handleActionDiscard = (event: Event) => {
+      const customEvent = event as CustomEvent<{ messageId: string }>;
+      handleDiscardEdits(customEvent.detail.messageId);
+    };
+
+    window.addEventListener("notion-ai:action-apply", handleActionApply);
+    window.addEventListener("notion-ai:action-discard", handleActionDiscard);
+    return () => {
+      window.removeEventListener("notion-ai:action-apply", handleActionApply);
+      window.removeEventListener("notion-ai:action-discard", handleActionDiscard);
+    };
+  }, [handleApplyEdits, handleDiscardEdits]);
 
   return (
     <>
@@ -391,9 +418,9 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
                         <div className="whitespace-pre-wrap">{msg.content}</div>
                       </div>
 
-                      {/* Action buttons card for proposed edits */}
+                      {/* Proposed edits notification card */}
                       {msg.edits && msg.edits.length > 0 && !msg.editsApplied && (
-                        <div className="mt-2.5 p-3 bg-purple-50/20 border border-purple-100 rounded-xl space-y-2 select-none animate-scale-in">
+                        <div className="mt-2.5 p-3.5 bg-purple-50/20 border border-purple-100 rounded-xl space-y-2.5 select-none animate-scale-in">
                           <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold text-purple-900 flex items-center gap-1">
                               ✨ Proposed Edits
@@ -404,7 +431,7 @@ export function FloatingAIChat({ pages, selectedPageId }: FloatingAIChatProps) {
                           </div>
                           
                           <p className="text-[10.5px] text-[#7c7b77] leading-relaxed">
-                            Changes are highlighted in green and red directly on the page content. Review them and confirm:
+                            A visual diff preview has been generated on the main page content area. Review the changes and confirm:
                           </p>
 
                           <div className="flex items-center gap-2 pt-0.5">

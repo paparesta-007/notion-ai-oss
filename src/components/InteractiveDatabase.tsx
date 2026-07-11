@@ -122,150 +122,7 @@ function ClientRichTextRenderer({ textArr }: { textArr?: any }) {
   );
 }
 
-/* Client-side Block Renderer for side-peek drawer */
-function ClientBlockRenderer({ block }: { block: any }) {
-  const { type, content, checked, language, rows, has_column_header, database_title, database_rows, database_columns, button_text, button_icon } = block;
 
-  switch (type) {
-    case "heading_1":
-      return <h1 className="text-2xl font-bold text-[#1a1a1a] mt-5 mb-2.5 border-b border-[#edece9] pb-1.5 leading-tight">{content}</h1>;
-    case "heading_2":
-      return <h2 className="text-xl font-semibold text-[#1a1a1a] mt-4 mb-2 leading-snug">{content}</h2>;
-    case "heading_3":
-      return <h3 className="text-lg font-semibold text-[#1a1a1a] mt-3 mb-1.5 leading-snug">{content}</h3>;
-    case "paragraph":
-      return <p className="text-sm text-[#37352f] leading-relaxed mb-3">{content}</p>;
-    case "bulleted_list_item":
-      return (
-        <div className="flex items-start gap-2 text-sm text-[#37352f] mb-1.5 pl-1">
-          <span className="text-[#a4a3a1] select-none text-base leading-none">•</span>
-          <span className="leading-relaxed">{content}</span>
-        </div>
-      );
-    case "to_do":
-      return (
-        <div className="flex items-start gap-2 text-sm text-[#37352f] mb-1.5 pl-0.5">
-          <input
-            type="checkbox"
-            checked={checked}
-            readOnly
-            className="mt-0.5 h-3.5 w-3.5 rounded border-[#e3e2e0] text-[#2383e2] cursor-not-allowed"
-          />
-          <span className={cn("leading-relaxed", checked && "line-through text-[#7c7b77]")}>{content}</span>
-        </div>
-      );
-    case "code":
-      return (
-        <div className="my-3">
-          <div className="flex justify-between items-center bg-[#edece9]/20 px-3 py-1 border-t border-l border-r border-[#edece9] rounded-t-md text-[10px] text-[#7a7a78] font-mono select-none">
-            <span className="flex items-center gap-1"><FileCode className="w-3 h-3" /> {language || "code"}</span>
-            <span>Read-Only</span>
-          </div>
-          <CodeBlock code={content} language={language || "javascript"} />
-        </div>
-      );
-    case "equation":
-      return (
-        <div className="my-5 flex justify-center text-neutral-800">
-          <Latex math={content} block={true} />
-        </div>
-      );
-    case "quote":
-      return <blockquote className="pl-3.5 border-l-[3px] border-[#37352f] text-sm italic text-[#6a6965] my-3 leading-relaxed">{content}</blockquote>;
-    case "callout":
-      return (
-        <div className="flex gap-2.5 p-3.5 bg-[#f7f7f5] border border-[#edece9] rounded-xl text-sm text-[#37352f] my-3 leading-relaxed items-start">
-          <Info className="w-4 h-4 text-[#7a7a78] mt-0.5 flex-shrink-0" />
-          <div>{content}</div>
-        </div>
-      );
-    case "table":
-      return (
-        <div className="my-3 overflow-x-auto border border-[#edece9] rounded-lg">
-          <table className="min-w-full divide-y divide-[#edece9] border-collapse">
-            <tbody className="divide-y divide-[#edece9]">
-              {(rows || []).map((row: any, rIdx: number) => {
-                const isHeader = rIdx === 0 && has_column_header;
-                return (
-                  <tr key={rIdx} className={cn(isHeader ? "bg-[#f7f7f5]/50 font-semibold" : "hover:bg-[#f7f7f5]/10")}>
-                    {row.map((cell: any, cIdx: number) => {
-                      const CellTag = isHeader ? "th" : "td";
-                      return (
-                        <CellTag key={cIdx} className="px-3 py-2 text-xs text-left border border-[#edece9] text-[#37352f]">
-                          <ClientRichTextRenderer textArr={cell} />
-                        </CellTag>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      );
-    case "image":
-      return (
-        <div className="my-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={content}
-            alt={block.caption || "Page Image"}
-            className="rounded-xl border border-[#edece9] max-h-[350px] object-cover w-full shadow-sm hover:shadow-md transition-shadow select-none"
-          />
-          {block.caption && (
-            <p className="text-[10px] text-[#7c7b77] mt-1 px-1 leading-normal select-none">
-              {block.caption}
-            </p>
-          )}
-        </div>
-      );
-    case "video":
-      const isYouTube = content.includes("youtube.com") || content.includes("youtu.be");
-      let embedUrl = "";
-      if (isYouTube) {
-        const match = content.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-        if (match && match[1]) {
-          embedUrl = `https://www.youtube.com/embed/${match[1]}`;
-        }
-      }
-
-      return (
-        <div className="my-3">
-          {embedUrl ? (
-            <div className="relative aspect-video rounded-xl border border-[#edece9] overflow-hidden shadow-sm">
-              <iframe
-                src={embedUrl}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full border-none"
-              />
-            </div>
-          ) : (
-            <video
-              src={content}
-              controls
-              className="rounded-xl border border-[#edece9] max-h-[350px] w-full shadow-sm select-none"
-            />
-          )}
-          {block.caption && (
-            <p className="text-[10px] text-[#7c7b77] mt-1 px-1 leading-normal select-none">
-              {block.caption}
-            </p>
-          )}
-        </div>
-      );
-    case "child_database":
-      return (
-        <InteractiveDatabase 
-          databaseTitle={database_title || content} 
-          initialRows={database_rows} 
-          columns={database_columns} 
-        />
-      );
-    default:
-      return null;
-  }
-}
 
 export function InteractiveDatabase({ 
   databaseTitle = "Untitled Database", 
@@ -283,40 +140,6 @@ export function InteractiveDatabase({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   
-  // Side-Peek Drawer State
-  const [openRow, setOpenRow] = useState<DatabaseRow | null>(null);
-  const [peekBlocks, setPeekBlocks] = useState<any[]>([]);
-  const [peekLoading, setPeekLoading] = useState(false);
-  const [peekError, setPeekError] = useState<string | null>(null);
-
-  // Fetch page blocks when opening a row
-  useEffect(() => {
-    if (!openRow) {
-      setPeekBlocks([]);
-      return;
-    }
-
-    const fetchBlocks = async () => {
-      setPeekLoading(true);
-      setPeekError(null);
-      try {
-        const response = await fetch(`/api/blocks/${openRow.id}`);
-        if (!response.ok) {
-          throw new Error(`Failed to load page content: ${response.statusText}`);
-        }
-        const data = await response.json();
-        setPeekBlocks(data.blocks || []);
-      } catch (err: any) {
-        console.error("Error fetching database row blocks:", err);
-        setPeekError(err.message || "Failed to load page content.");
-      } finally {
-        setPeekLoading(false);
-      }
-    };
-
-    fetchBlocks();
-  }, [openRow]);
-
   // Get unique statuses for the filter dropdown
   const uniqueStatuses = ["All", ...Array.from(new Set(rows.map(r => r["Status"] || r["status"] || "").filter(Boolean)))];
 
@@ -344,9 +167,6 @@ export function InteractiveDatabase({
 
   const handleDeleteRow = (id: string) => {
     setRows((prev) => prev.filter((r) => r.id !== id));
-    if (openRow && openRow.id === id) {
-      setOpenRow(null);
-    }
   };
 
   // Filter and search items
@@ -369,7 +189,11 @@ export function InteractiveDatabase({
   };
 
   const handleOpenRow = (row: DatabaseRow) => {
-    setOpenRow(row);
+    const primaryCol = columns[0];
+    const title = row[primaryCol] || "Untitled Entry";
+    window.dispatchEvent(new CustomEvent("notion-ai:open-peek", {
+      detail: { id: row.id, title }
+    }));
   };
 
   return (
@@ -559,179 +383,6 @@ export function InteractiveDatabase({
         </table>
       </div>
 
-      {/* Slide-out Side-Peek Drawer Panel */}
-      {openRow && (
-        <div className="fixed inset-0 z-50 overflow-hidden select-none">
-          {/* Backdrop overlay */}
-          <div 
-            onClick={() => setOpenRow(null)}
-            className="absolute inset-0 bg-[#000000]/15 backdrop-blur-[1px] transition-opacity animate-fade-in"
-          />
-
-          {/* Drawer Panel */}
-          <div 
-            className="absolute top-0 right-0 bottom-0 w-full max-w-2xl bg-white border-l border-[#edece9] shadow-2xl flex flex-col h-full animate-slide-in-right select-text"
-            style={{
-              animation: "slideInRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards"
-            }}
-          >
-            {/* Drawer Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#edece9] select-none">
-              <div className="flex items-center gap-2 text-xs text-[#7a7a78]">
-                <Table className="w-3.5 h-3.5" />
-                <span>Database Entry</span>
-                <span>/</span>
-                <span className="font-medium text-[#37352f] truncate max-w-[200px]">{openRow[columns[0]]}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setOpenRow(null)}
-                  className="p-1 hover:bg-[#edece9] rounded text-[#7a7a78] hover:text-[#37352f] transition-all focus:outline-none cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Drawer Body Scroll Container */}
-            <div className="flex-1 overflow-y-auto px-10 py-8">
-              {/* Page Title Header */}
-              <div className="mb-6">
-                <div className="text-4xl block mb-3 select-none">📄</div>
-                <h1 className="text-2xl font-bold text-[#1a1a1a] tracking-tight leading-tight">
-                  {openRow[columns[0]]}
-                </h1>
-              </div>
-
-              {/* Properties Grid */}
-              <div className="border border-[#edece9] rounded-xl p-4 bg-[#f7f7f5]/30 mb-8 space-y-3">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-[#7a7a78] mb-2 select-none">Properties</div>
-                
-                <div className="grid grid-cols-12 gap-y-2.5 text-xs">
-                  {columns.slice(1).map((col) => {
-                    const val = openRow[col] || "";
-                    let displayVal = <span className="text-[#37352f]">{val}</span>;
-
-                    if (val.startsWith('{"type":')) {
-                      try {
-                        const parsed = JSON.parse(val);
-                        if (parsed.type === "multi_select" && parsed.tags) {
-                          displayVal = (
-                            <div className="flex flex-wrap gap-1">
-                              {parsed.tags.map((tag: any) => (
-                                <span 
-                                  key={tag.name} 
-                                  className={cn(
-                                    "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                                    NOTION_TAG_COLORS[tag.color] || NOTION_TAG_COLORS.default
-                                  )}
-                                >
-                                  {tag.name}
-                                </span>
-                              ))}
-                            </div>
-                          );
-                        } else if (parsed.type === "select" && parsed.tag) {
-                          displayVal = (
-                            <span 
-                              className={cn(
-                                "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                                NOTION_TAG_COLORS[parsed.tag.color] || NOTION_TAG_COLORS.default
-                              )}
-                            >
-                              {parsed.tag.name}
-                            </span>
-                          );
-                        }
-                      } catch (e) {
-                        // ignore
-                      }
-                    } else if (col.toLowerCase() === "status") {
-                      displayVal = (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-semibold border",
-                          STATUS_COLORS[val] || "bg-neutral-50 text-neutral-600 border-neutral-200/50"
-                        )}>
-                          {val}
-                        </span>
-                      );
-                    } else if (col.toLowerCase() === "priority") {
-                      displayVal = (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-semibold border",
-                          PRIORITY_COLORS[val] || "bg-neutral-50 text-neutral-600 border-neutral-200/50"
-                        )}>
-                          {val}
-                        </span>
-                      );
-                    }
-
-                    return (
-                      <React.Fragment key={col}>
-                        <div className="col-span-4 text-[#7c7b77] font-medium flex items-center select-none">
-                          {getColIcon(col)}
-                          <span className="ml-1.5">{col}</span>
-                        </div>
-                        <div className="col-span-8 flex items-center">{displayVal}</div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <hr className="border-[#edece9] mb-6 select-none" />
-
-              {/* Page Children Blocks Area */}
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-[#7a7a78] mb-4 select-none">Content</div>
-
-                {peekLoading && (
-                  <div className="space-y-3.5 select-none mt-2">
-                    <div className="h-4 bg-[#edece9] rounded w-3/4 animate-pulse"></div>
-                    <div className="h-4 bg-[#edece9] rounded w-5/6 animate-pulse"></div>
-                    <div className="h-4 bg-[#edece9] rounded w-2/3 animate-pulse"></div>
-                    <div className="h-10 bg-[#edece9] rounded w-full animate-pulse mt-4"></div>
-                    <div className="h-4 bg-[#edece9] rounded w-1/2 animate-pulse mt-4"></div>
-                  </div>
-                )}
-
-                {peekError && (
-                  <div className="text-sm text-red-600 border border-red-200 bg-red-50/50 rounded-xl p-4 mt-2">
-                    <p className="font-semibold flex items-center gap-1"><Info className="w-4 h-4" /> Content Load Failed</p>
-                    <p className="text-xs mt-1 text-red-500">{peekError}</p>
-                  </div>
-                )}
-
-                {!peekLoading && !peekError && peekBlocks.length === 0 && (
-                  <div className="text-center py-10 text-xs text-[#7c7b77] border border-dashed border-[#edece9] rounded-xl select-none">
-                    <span>This page has no content blocks.</span>
-                  </div>
-                )}
-
-                {!peekLoading && !peekError && peekBlocks.length > 0 && (
-                  <div className="space-y-3">
-                    {peekBlocks.map((block, index) => (
-                      <ClientBlockRenderer key={index} block={block} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global CSS injection for drawer animations */}
-      <style jsx global>{`
-        @keyframes slideInRight {
-          from {
-            transform: translateX(100%);
-          }
-          to {
-            transform: translateX(0);
-          }
-        }
-      `}</style>
     </div>
   );
 }

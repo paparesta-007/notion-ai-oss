@@ -163,6 +163,7 @@ Rules for Page Edits (when isModification is true):
 - Keep changes minimal and targeted
 - Preserve block IDs exactly as given
 - For table_row blocks, format cell content as "cell1 | cell2 | cell3"
+- Use inline markdown formatting in \`new_content\` where appropriate: use backticks like \\\`code\\\` for inline code, technical commands, shortcuts, key values, and configuration terms. Use \`**bold**\` for strong emphasis.
 - If the user asks to modify only specific parts or sections (e.g. "ultima parte", "first 10 rows"), only target those blocks
 - Return isModification: false if no page is selected but they ask for an edit (and explain why in the answer).
 - If the user query is just general conversation or a question about the page contents (without wanting to change them), set isModification: false and explain the answer.

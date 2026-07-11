@@ -18,6 +18,67 @@ export function PageIcon({ emoji, className = "w-4 h-4" }: { emoji?: string | nu
   return <FileText className={cn(className, "text-[#7a7a78] flex-shrink-0")} />;
 }
 
+function parseBoldAndItalic(text: string, baseKey: any): React.ReactNode {
+  // Split by bold: **text**
+  const boldParts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return (
+    <React.Fragment key={baseKey}>
+      {boldParts.map((bPart, bIdx) => {
+        if (bPart.startsWith("**") && bPart.endsWith("**")) {
+          const boldText = bPart.slice(2, -2);
+          return (
+            <strong key={`bold-${bIdx}`} className="font-bold text-[#1a1a1a]">
+              {boldText}
+            </strong>
+          );
+        }
+
+        // Split by italic: *text*
+        const italicParts = bPart.split(/(\*[^*]+\*)/g);
+        return (
+          <React.Fragment key={`italic-frag-${bIdx}`}>
+            {italicParts.map((iPart, iIdx) => {
+              if (iPart.startsWith("*") && iPart.endsWith("*")) {
+                const italicText = iPart.slice(1, -1);
+                return (
+                  <em key={`italic-${iIdx}`} className="italic">
+                    {italicText}
+                  </em>
+                );
+              }
+              return iPart;
+            })}
+          </React.Fragment>
+        );
+      })}
+    </React.Fragment>
+  );
+}
+
+function parseInlineMarkdown(text: string): React.ReactNode[] {
+  if (!text) return [];
+
+  // Split by inline code: `code`
+  const parts = text.split(/(`[^`\n]+`)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      const codeText = part.slice(1, -1);
+      return (
+        <code
+          key={`code-${index}`}
+          className="bg-[#edece9]/60 px-1.5 py-0.5 rounded font-mono text-[13px] text-[#eb5757]"
+        >
+          {codeText}
+        </code>
+      );
+    }
+
+    return parseBoldAndItalic(part, index);
+  });
+}
+
 export function parseAndRenderText(text: string) {
   if (!text) return "";
   
@@ -26,7 +87,7 @@ export function parseAndRenderText(text: string) {
   
   // Clean empty values
   const cleanParts = parts.filter(Boolean);
-  if (cleanParts.length === 0) return text;
+  if (cleanParts.length === 0) return parseInlineMarkdown(text);
   
   // Regex parsing for inline math
   const inlineMathRegex = /(\$\$.*?\$\$|\$.*?\$)/g;
@@ -40,7 +101,7 @@ export function parseAndRenderText(text: string) {
       const math = part.slice(1, -1);
       return <Latex key={idx} math={math} block={false} />;
     }
-    return <span key={idx}>{part}</span>;
+    return <React.Fragment key={idx}>{parseInlineMarkdown(part)}</React.Fragment>;
   });
 }
 

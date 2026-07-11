@@ -47,26 +47,197 @@ interface BreadcrumbItem {
   emoji?: string | null;
 }
 
-function getPageBreadcrumbs(selectedPageId: string, pages: any[]): BreadcrumbItem[] {
+async function getPageBreadcrumbs(
+  selectedPageId: string,
+  pages: any[],
+  accessToken: string
+): Promise<BreadcrumbItem[]> {
   const crumbs: BreadcrumbItem[] = [];
   let currentId: string | undefined = selectedPageId;
   const visited = new Set<string>();
 
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId);
-    const page = pages.find((p) => p.id === currentId);
+  const normalize = (id: string) => id.replace(/-/g, "").toLowerCase();
+
+  while (currentId && !visited.has(normalize(currentId))) {
+    const normalizedCurrentId = normalize(currentId);
+    visited.add(normalizedCurrentId);
+    
+    let page = pages.find((p) => normalize(p.id) === normalizedCurrentId);
+
+    if (!page && accessToken && !accessToken.startsWith("mock")) {
+      const cacheKey = `breadcrumb-node:${currentId}`;
+      let cachedNode = getCached<any>(cacheKey);
+
+      if (!cachedNode) {
+        try {
+          // 1. Try to fetch as page first
+          const res = await fetch(`https://api.notion.com/v1/pages/${currentId}`, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Notion-Version": "2022-06-28",
+            },
+            cache: "no-store",
+          });
+
+          if (res.ok) {
+            const pageData = await res.json();
+            const titleProp = pageData.properties?.title || pageData.properties?.Name || pageData.properties?.name;
+            const titleArray = titleProp?.title || titleProp?.rich_text;
+            const title = titleArray && titleArray.length > 0
+              ? titleArray.map((t: any) => t.plain_text).join("")
+              : "Untitled Page";
+
+            let icon = null;
+            if (pageData.icon?.type === "emoji") {
+              icon = pageData.icon.emoji;
+            } else if (pageData.icon?.type === "external") {
+              icon = pageData.icon.external.url;
+            } else if (pageData.icon?.type === "file") {
+              icon = pageData.icon.file.url;
+            }
+
+            const parentId = pageData.parent?.type === "page_id"
+              ? pageData.parent.page_id
+              : pageData.parent?.type === "database_id"
+              ? pageData.parent.database_id
+              : undefined;
+
+            cachedNode = { id: pageData.id, title, emoji: icon, parentId };
+            setCached(cacheKey, cachedNode, 3600000); // cache for 1 hour
+          } else {
+            // 2. Try to fetch as database
+            const dbRes = await fetch(`https://api.notion.com/v1/databases/${currentId}`, {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Notion-Version": "2022-06-28",
+              },
+              cache: "no-store",
+            });
+
+            if (dbRes.ok) {
+              const dbData = await dbRes.json();
+              const title = dbData.title?.map((t: any) => t.plain_text).join("") || "Untitled Database";
+
+              let icon = null;
+              if (dbData.icon?.type === "emoji") {
+                icon = dbData.icon.emoji;
+              } else if (dbData.icon?.type === "external") {
+                icon = dbData.icon.external.url;
+              } else if (dbData.icon?.type === "file") {
+                icon = dbData.icon.file.url;
+              }
+
+              const parentId = dbData.parent?.type === "page_id"
+                ? dbData.parent.page_id
+                : dbData.parent?.type === "database_id"
+                ? dbData.parent.database_id
+                : undefined;
+
+              cachedNode = { id: dbData.id, title, emoji: icon, parentId };
+              setCached(cacheKey, cachedNode, 3600000); // cache for 1 hour
+            }
+          }
+        } catch (err) {
+          console.error("Error fetching parent node:", err);
+        }
+      }
+
+      if (cachedNode) {
+        page = cachedNode;
+      }
+    }
+
     if (!page) break;
 
     crumbs.unshift({
       id: page.id,
       title: page.title,
-      emoji: page.emoji,
+      emoji: page.emoji || null,
     });
 
     currentId = page.parentId;
   }
 
   return crumbs;
+}
+
+// Helper function to fetch database items
+async function fetchDatabaseItems(databaseId: string, accessToken: string) {
+  const cacheKey = `database-page:${databaseId}`;
+  const cached = getCached<any>(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ page_size: 100 }),
+      cache: "no-store",
+    });
+
+    if (!res.ok) return null;
+    const dbData = await res.json();
+    
+    const rows = dbData.results.map((page: any) => {
+      const rowData: Record<string, string> = {};
+      rowData.id = page.id;
+      Object.keys(page.properties).forEach((propName) => {
+        const prop = page.properties[propName];
+        let val = "";
+        if (prop.type === "title") {
+          val = prop.title.map((t: any) => t.plain_text).join("");
+        } else if (prop.type === "rich_text") {
+          val = prop.rich_text.map((t: any) => t.plain_text).join("");
+        } else if (prop.type === "select" && prop.select) {
+          val = JSON.stringify({ 
+            type: "select", 
+            tag: { name: prop.select.name, color: prop.select.color } 
+          });
+        } else if (prop.type === "multi_select" && prop.multi_select && prop.multi_select.length > 0) {
+          val = JSON.stringify({ 
+            type: "multi_select", 
+            tags: prop.multi_select.map((s: any) => ({ name: s.name, color: s.color })) 
+          });
+        } else if (prop.type === "status" && prop.status) {
+          val = prop.status.name;
+        } else if (prop.type === "date") {
+          val = prop.date?.start || "";
+        } else if (prop.type === "checkbox") {
+          val = prop.checkbox ? "Yes" : "No";
+        } else if (prop.type === "number") {
+          val = prop.number?.toString() || "";
+        } else if (prop.type === "url") {
+          val = prop.url || "";
+        } else if (prop.type === "email") {
+          val = prop.email || "";
+        } else if (prop.type === "phone_number") {
+          val = prop.phone_number || "";
+        }
+        rowData[propName] = val;
+      });
+      return rowData;
+    });
+
+    const firstPage = dbData.results[0];
+    let columns: string[] = [];
+    if (firstPage) {
+      const props = firstPage.properties;
+      const titleKey = Object.keys(props).find(k => props[k].type === "title");
+      const otherKeys = Object.keys(props).filter(k => props[k].type !== "title");
+      columns = titleKey ? [titleKey, ...otherKeys] : Object.keys(props);
+    }
+
+    const result = { rows, columns };
+    setCached(cacheKey, result, 15000); // cache for 15 seconds
+    return result;
+  } catch (err) {
+    console.error("Error fetching database items:", err);
+    return null;
+  }
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
@@ -102,7 +273,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          filter: { property: "object", value: "page" },
           page_size: 100,
         }),
         cache: "no-store",
@@ -138,13 +308,48 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       }).then(async (res) => {
         if (res.ok) {
           const data = await res.json();
-          setCached(cacheKey, data, 30000); // Cache metadata for 30s
-          return data;
+          return { ...data, isDatabase: false };
+        }
+        
+        // If pages endpoint fails, fallback to databases endpoint
+        const dbRes = await fetch(`https://api.notion.com/v1/databases/${selectedPageId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "Notion-Version": "2022-06-28",
+          },
+          cache: "no-store",
+        });
+
+        if (dbRes.ok) {
+          const data = await dbRes.json();
+          return { ...data, isDatabase: true };
         }
         return null;
-      }).catch(err => {
-        console.error("Page details fetch exception:", err);
+      }).catch(async (err) => {
+        console.error("Page details fetch exception, trying database:", err);
+        try {
+          const dbRes = await fetch(`https://api.notion.com/v1/databases/${selectedPageId}`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+              "Notion-Version": "2022-06-28",
+            },
+            cache: "no-store",
+          });
+          if (dbRes.ok) {
+            const data = await dbRes.json();
+            return { ...data, isDatabase: true };
+          }
+        } catch (dbErr) {
+          console.error("Database details fallback exception:", dbErr);
+        }
         return null;
+      }).then((data) => {
+        if (data) {
+          setCached(cacheKey, data, 30000); // Cache metadata for 30s
+        }
+        return data;
       });
     }
   }
@@ -190,12 +395,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     pages = MOCK_PAGES;
   } else if (resolvedSearch) {
     pages = resolvedSearch.results.map((page: any) => {
-      const titleProp = page.properties?.title || page.properties?.Name || page.properties?.name;
-      const titleArray = titleProp?.title || titleProp?.rich_text;
-      const title =
-        titleArray && titleArray.length > 0
-          ? titleArray.map((t: any) => t.plain_text).join("")
-          : "Untitled Page";
+      let title = "Untitled Page";
+      if (page.object === "database" && page.title) {
+        title = page.title.map((t: any) => t.plain_text).join("") || "Untitled Database";
+      } else {
+        const titleProp = page.properties?.title || page.properties?.Name || page.properties?.name;
+        const titleArray = titleProp?.title || titleProp?.rich_text;
+        title =
+          titleArray && titleArray.length > 0
+            ? titleArray.map((t: any) => t.plain_text).join("")
+            : "Untitled Page";
+      }
 
       let icon = null;
       if (page.icon?.type === "emoji") {
@@ -220,6 +430,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         last_edited: new Date(page.last_edited_time).toLocaleDateString(),
         emoji: icon,
         parentId,
+        isDatabase: page.object === "database",
       };
     });
   } else {
@@ -242,12 +453,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Determine selected page metadata
   let selectedPage = selectedPageId ? pages.find((p) => p.id === selectedPageId) : null;
   if (selectedPageId && !selectedPage && !session.isMock && resolvedDetails) {
-    const titleProp = resolvedDetails.properties?.title || resolvedDetails.properties?.Name || resolvedDetails.properties?.name;
-    const titleArray = titleProp?.title || titleProp?.rich_text;
-    const title =
-      titleArray && titleArray.length > 0
-        ? titleArray.map((t: any) => t.plain_text).join("")
-        : "Untitled Page";
+    let title = "Untitled Page";
+    if (resolvedDetails.isDatabase && resolvedDetails.title) {
+      title = resolvedDetails.title.map((t: any) => t.plain_text).join("") || "Untitled Database";
+    } else {
+      const titleProp = resolvedDetails.properties?.title || resolvedDetails.properties?.Name || resolvedDetails.properties?.name;
+      const titleArray = titleProp?.title || titleProp?.rich_text;
+      title =
+        titleArray && titleArray.length > 0
+          ? titleArray.map((t: any) => t.plain_text).join("")
+          : "Untitled Page";
+    }
 
     let icon = null;
     if (resolvedDetails.icon?.type === "emoji") {
@@ -272,11 +488,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       last_edited: new Date(resolvedDetails.last_edited_time).toLocaleDateString(),
       emoji: icon,
       parentId,
+      isDatabase: !!resolvedDetails.isDatabase,
     };
   }
 
   // Get recursive page breadcrumbs hierarchy
-  const breadcrumbs = selectedPageId ? getPageBreadcrumbs(selectedPageId, pages) : [];
+  const breadcrumbs = selectedPageId 
+    ? await getPageBreadcrumbs(selectedPageId, pages, session.accessToken) 
+    : [];
 
   // Process selected page blocks content
   let pageBlocks: Block[] = [];
@@ -285,6 +504,22 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   if (selectedPageId) {
     if (session.isMock) {
       pageBlocks = MOCK_PAGE_CONTENTS[selectedPageId]?.blocks || [];
+    } else if (selectedPage?.isDatabase) {
+      const dbResult = await fetchDatabaseItems(selectedPageId, session.accessToken);
+      if (dbResult) {
+        pageBlocks = [
+          {
+            id: selectedPageId,
+            type: "child_database",
+            content: selectedPage.title,
+            database_title: selectedPage.title,
+            database_rows: dbResult.rows,
+            database_columns: dbResult.columns,
+          }
+        ];
+      } else {
+        blockFetchError = "Failed to load database contents.";
+      }
     } else if (resolvedBlocks) {
       try {
         pageBlocks = await Promise.all(
@@ -332,6 +567,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     return [];
                   });
                   return {
+                    id: block.id,
                     type,
                     content: "",
                     rows,
@@ -417,6 +653,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                   }
 
                   return {
+                    id: block.id,
                     type,
                     content: block.child_database.title,
                     database_title: block.child_database.title,
@@ -435,6 +672,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               const src = imgType === "external" ? block.image.external.url : block.image.file?.url;
               const caption = block.image.caption?.map((t: any) => t.plain_text).join("") || "";
               return {
+                id: block.id,
                 type,
                 content: src || "",
                 caption,
@@ -447,6 +685,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               const src = vidType === "external" ? block.video.external.url : block.video.file?.url;
               const caption = block.video.caption?.map((t: any) => t.plain_text).join("") || "";
               return {
+                id: block.id,
                 type,
                 content: src || "",
                 caption,
@@ -459,6 +698,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               const src = pdfType === "external" ? block.pdf.external.url : block.pdf.file?.url;
               const caption = block.pdf.caption?.map((t: any) => t.plain_text).join("") || "";
               return {
+                id: block.id,
                 type,
                 content: src || "",
                 caption,
@@ -469,6 +709,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             if (type === "embed" && block.embed) {
               const caption = block.embed.caption?.map((t: any) => t.plain_text).join("") || "";
               return {
+                id: block.id,
                 type,
                 content: block.embed.url || "",
                 caption,
@@ -478,6 +719,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             // Equation block handling
             if (type === "equation" && block.equation?.expression) {
               return {
+                id: block.id,
                 type,
                 content: block.equation.expression,
               };
@@ -486,6 +728,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             // Button blocks (API returns as "unsupported" block with block_type: "button")
             if (type === "unsupported" && block.unsupported?.block_type === "button") {
               return {
+                id: block.id,
                 type: "button",
                 content: "Run Action",
                 button_text: "Button Action",
@@ -494,6 +737,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             }
 
             return {
+              id: block.id,
               type,
               content,
               checked,
@@ -521,84 +765,82 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     <div className="flex h-screen w-full bg-white text-[#37352f] antialiased select-none font-sans overflow-hidden">
       
       {/* Left Sidebar */}
-      <aside className="w-[240px] flex-shrink-0 bg-[#f7f7f5] border-r border-[#edece9] flex flex-col justify-between h-full select-none">
-        <div>
-          {/* Workspace Info Card */}
-          <Link href="/" className="p-3.5 flex items-center justify-between border-b border-[#edece9] hover:bg-[#edece9]/40 cursor-pointer transition-colors block">
-            <div className="flex items-center gap-2 max-w-[170px] truncate">
-              {session.workspaceIcon ? (
-                <span className="text-xl flex-shrink-0">{session.workspaceIcon}</span>
-              ) : (
-                <div className="h-6 w-6 rounded bg-black text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
-                  N
-                </div>
-              )}
-              <div className="flex flex-col truncate">
-                <span className="text-[13px] font-semibold text-[#37352f] truncate leading-none">
-                  {session.workspaceName || "Workspace"}
-                </span>
-                <span className="text-[11px] text-[#7a7a78] mt-1 truncate leading-none">
-                  {session.ownerName || "Notion Member"}
-                </span>
+      <aside className="w-[240px] flex-shrink-0 bg-[#f7f7f5] border-r border-[#edece9] flex flex-col h-full select-none">
+        {/* Workspace Info Card */}
+        <Link href="/" className="p-3.5 flex items-center justify-between border-b border-[#edece9] hover:bg-[#edece9]/40 cursor-pointer transition-colors block">
+          <div className="flex items-center gap-2 max-w-[170px] truncate">
+            {session.workspaceIcon ? (
+              <span className="text-xl flex-shrink-0">{session.workspaceIcon}</span>
+            ) : (
+              <div className="h-6 w-6 rounded bg-black text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                N
               </div>
+            )}
+            <div className="flex flex-col truncate">
+              <span className="text-[13px] font-semibold text-[#37352f] truncate leading-none">
+                {session.workspaceName || "Workspace"}
+              </span>
+              <span className="text-[11px] text-[#7a7a78] mt-1 truncate leading-none">
+                {session.ownerName || "Notion Member"}
+              </span>
             </div>
-            
-            {/* Connected Indicator */}
-            <div className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+          </div>
+          
+          {/* Connected Indicator */}
+          <div className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+          </div>
+        </Link>
+
+        {/* Interactive Search bar component (Ctrl+K and Click trigger) */}
+        <SearchCommand pages={pages} />
+
+        {/* Notion AI Chatbot Menu Item */}
+        <div className="px-2 py-1.5 border-b border-[#edece9] select-none">
+          <Link 
+            href="/?ai=true"
+            className={cn(
+              "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-semibold transition-colors block",
+              pageIdParam === undefined && params.ai === "true"
+                ? "bg-[#edece9] text-[#1a1a1a]" 
+                : "text-[#37352f] hover:bg-[#edece9]/40"
+            )}
+          >
+            <div className="flex items-center gap-2.5 w-full">
+              <Sparkles className="w-4 h-4 text-purple-600 flex-shrink-0" />
+              <span className="flex-1 text-left font-sans">Notion AI Chatbot</span>
+              <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider scale-95 font-sans">New</span>
             </div>
           </Link>
-
-          {/* Interactive Search bar component (Ctrl+K and Click trigger) */}
-          <SearchCommand pages={pages} />
-
-          {/* Notion AI Chatbot Menu Item */}
-          <div className="px-2 py-1.5 border-b border-[#edece9] select-none">
-            <Link 
-              href="/?ai=true"
-              className={cn(
-                "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-semibold transition-colors block",
-                pageIdParam === undefined && params.ai === "true"
-                  ? "bg-[#edece9] text-[#1a1a1a]" 
-                  : "text-[#37352f] hover:bg-[#edece9]/40"
-              )}
-            >
-              <div className="flex items-center gap-2.5 w-full">
-                <Sparkles className="w-4 h-4 text-purple-600 flex-shrink-0" />
-                <span className="flex-1 text-left font-sans">Notion AI Chatbot</span>
-                <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider scale-95 font-sans">New</span>
-              </div>
-            </Link>
-          </div>
-
-          {/* Sidebar Navigation Pages */}
-          <nav className="px-2 py-1 space-y-0.5 max-h-[calc(100vh-220px)] overflow-y-auto">
-            <span className="text-[11px] font-semibold text-[#7a7a78] tracking-wider uppercase px-2 py-1.5 block">
-              Pages ({pages.length})
-            </span>
-            {pages.map((page) => {
-              const isActive = page.id === selectedPageId;
-              return (
-                <Link
-                  key={page.id}
-                  href={`/?pageId=${page.id}`}
-                  className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors truncate ${
-                    isActive
-                      ? "bg-[#edece9] text-[#37352f] font-semibold"
-                      : "text-[#6a6965] hover:bg-[#edece9]/60 hover:text-[#37352f]"
-                  }`}
-                >
-                  <PageIcon emoji={page.emoji} className="w-4 h-4" />
-                  <span className="truncate">{page.title}</span>
-                </Link>
-              );
-            })}
-          </nav>
         </div>
 
+        {/* Sidebar Navigation Pages */}
+        <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto">
+          <span className="text-[11px] font-semibold text-[#7a7a78] tracking-wider uppercase px-2 py-1.5 block">
+            Pages ({pages.length})
+          </span>
+          {pages.map((page) => {
+            const isActive = page.id === selectedPageId;
+            return (
+              <Link
+                key={page.id}
+                href={`/?pageId=${page.id}`}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm font-medium transition-colors truncate ${
+                  isActive
+                    ? "bg-[#edece9] text-[#37352f] font-semibold"
+                    : "text-[#6a6965] hover:bg-[#edece9]/60 hover:text-[#37352f]"
+                }`}
+              >
+                <PageIcon emoji={page.emoji} className="w-4 h-4" />
+                <span className="truncate">{page.title}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
         {/* Sidebar Footer Details */}
-        <div className="p-3 border-t border-[#edece9] bg-[#f7f7f5] space-y-3">
+        <div className="p-3 border-t border-[#edece9] bg-[#f7f7f5] space-y-3 flex-shrink-0">
           {/* Expiry Widget */}
           <div className="text-[11px] text-[#7c7b77] space-y-1">
             <div className="flex justify-between">

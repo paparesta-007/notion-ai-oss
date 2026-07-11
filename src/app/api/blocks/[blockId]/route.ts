@@ -124,6 +124,7 @@ export async function GET(
               const dbData = await dbRes.json();
               const rows = dbData.results.map((page: any) => {
                 const rowData: Record<string, string> = {};
+                rowData.id = page.id;
                 Object.keys(page.properties).forEach((propName) => {
                   const prop = page.properties[propName];
                   let val = "";
