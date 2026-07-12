@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Table, Plus, Search, Calendar, Tag, ChevronDown, Filter, X, ExternalLink, Info, FileCode, CornerDownLeft, FileText, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageIcon } from "./BlockRenderer";
@@ -142,7 +142,11 @@ export function InteractiveDatabase({
   const [statusFilter, setStatusFilter] = useState<string>("All");
   
   // Get unique statuses for the filter dropdown
-  const uniqueStatuses = ["All", ...Array.from(new Set(rows.map(r => r["Status"] || r["status"] || "").filter(Boolean)))];
+  // ⚡ Bolt Optimization: Memoized unique statuses calculation to prevent O(n) recalculation on every render
+  // Reduces unnecessary processing from O(N) to O(1) on renders where rows don't change
+  const uniqueStatuses = useMemo(() => {
+    return ["All", ...Array.from(new Set(rows.map(r => r["Status"] || r["status"] || "").filter(Boolean)))];
+  }, [rows]);
 
   const handleAddRow = () => {
     const newId = `row-${Date.now()}`;
@@ -171,15 +175,23 @@ export function InteractiveDatabase({
   };
 
   // Filter and search items
-  const filteredRows = rows.filter((row) => {
+  // ⚡ Bolt Optimization:
+  // 1. Memoized filteredRows to prevent full array filtering on every render
+  // 2. Moved constant operations (toLowerCase, statusCol lookup) outside the filter loop
+  // Reduces complexity from O(N * M) to O(N) when filtering is required, and O(1) when dependencies don't change
+  const filteredRows = useMemo(() => {
     const primaryCol = columns[0];
-    const matchSearch = row[primaryCol]?.toLowerCase().includes(searchQuery.toLowerCase());
-    
+    const lowerQuery = searchQuery.toLowerCase();
     const statusCol = columns.find(c => c.toLowerCase() === "status") || "Status";
-    const matchStatus = statusFilter === "All" || row[statusCol] === statusFilter;
 
-    return matchSearch && matchStatus;
-  });
+    return rows.filter((row) => {
+      const matchSearch = row[primaryCol]?.toLowerCase().includes(lowerQuery);
+      const matchStatus = statusFilter === "All" || row[statusCol] === statusFilter;
+
+      return matchSearch && matchStatus;
+    });
+  }, [rows, columns, searchQuery, statusFilter]);
+
   const getColIcon = (colName: string) => {
     const nameLower = colName.toLowerCase();
     if (nameLower.includes("name") || nameLower.includes("title") || nameLower.includes("subject")) {

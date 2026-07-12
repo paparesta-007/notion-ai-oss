@@ -1,0 +1,3 @@
+## 2024-07-12 - [Redundant work inside loop in InteractiveDatabase.tsx]
+**Learning:** Found redundant calculations (`toLowerCase()` and `.find()`) inside a `.filter` array method in `InteractiveDatabase.tsx` that unnecessarily multiplied calculation time. The array itself was also not memoized, recalculating on every render.
+**Action:** When filtering or mapping arrays inside components, check if there are any calculations that are constant across all elements, and move them outside the loop. Use `useMemo` for derived arrays that rely on state variables to avoid unnecessary recalculations across renders.
