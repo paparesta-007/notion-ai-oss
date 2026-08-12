@@ -1,0 +1,19 @@
+{
+  "name": "notion-playground",
+  "version": "1.0.0",
+  "description": "Login with Notion, paste a page URL, see it rendered following the official block type reference.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "undici": "^8.7.0"
+  }
+}
